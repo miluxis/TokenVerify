@@ -7,7 +7,7 @@ from pathlib import Path
 from tokenverify.models import AuditResult, ProbeResult, ProviderEvent
 from tokenverify.providers.anthropic import AnthropicMessagesClient, build_messages_payload
 from tokenverify.probes.messages import evaluate_messages_response
-from tokenverify.probes.streaming import calculate_streaming_metrics
+from tokenverify.probes.streaming import evaluate_streaming_features
 from tokenverify.probes.thinking import build_thinking_payload, evaluate_thinking_outcome
 from tokenverify.scoring import score_probe_results
 
@@ -26,8 +26,8 @@ def run_audit(runtime_config, observations: AuditObservations | None = None) -> 
     probe_results: list[ProbeResult] = []
     if observations.thinking_error == "API key is required for live audit.":
         probe_results.append(ProbeResult("messages_protocol", "error", errors=[observations.thinking_error]))
-        rating, breakdown = score_probe_results(probe_results)
-        return _result(runtime_config, probe_results, rating, breakdown)
+        rating, breakdown, verdict = score_probe_results(probe_results)
+        return _result(runtime_config, probe_results, rating, breakdown, verdict)
     if observations.messages_response is not None:
         probe_results.append(evaluate_messages_response(observations.messages_response))
     if observations.messages_error is not None:
@@ -41,19 +41,11 @@ def run_audit(runtime_config, observations: AuditObservations | None = None) -> 
             )
         )
     if observations.stream_events:
-        metrics = calculate_streaming_metrics(observations.stream_events)
-        probe_results.append(
-            ProbeResult(
-                name="streaming_features",
-                status="warning" if metrics.is_synthetic_stream else "passed",
-                evidence=[],
-                metrics=metrics,
-            )
-        )
+        probe_results.append(evaluate_streaming_features(observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
-    rating, breakdown = score_probe_results(probe_results)
-    return _result(runtime_config, probe_results, rating, breakdown)
+    rating, breakdown, verdict = score_probe_results(probe_results)
+    return _result(runtime_config, probe_results, rating, breakdown, verdict)
 
 
 def _collect_live_observations(runtime_config) -> AuditObservations:
@@ -96,16 +88,24 @@ def _collect_live_observations(runtime_config) -> AuditObservations:
     )
 
 
-def _result(runtime_config, probe_results: list[ProbeResult], rating, breakdown: dict[str, int]) -> AuditResult:
+def _result(runtime_config, probe_results: list[ProbeResult], rating, breakdown: dict[str, int], verdict) -> AuditResult:
+    claim = runtime_config.endpoint.claim
     return AuditResult(
         target_summary={
             "base_url_host": _host(runtime_config.endpoint.base_url),
             "model": runtime_config.endpoint.model,
             "endpoint": runtime_config.endpoint.name,
+            "claimed_provider": claim.provider if claim else "anthropic",
+            "claimed_api_shape": claim.api_shape if claim else "native",
+            "claimed_model": claim.model if claim else runtime_config.endpoint.model,
+            "claimed_channel": claim.channel_claim if claim else "unknown",
+            "claimed_region": claim.region_claim if claim else None,
         },
         probe_results=probe_results,
         rating=rating,
         score_breakdown=breakdown,
+        verdict=verdict,
+        claim=claim,
         report_warnings=["raw logging enabled"] if runtime_config.raw_logs_enabled else [],
         raw_log_path=runtime_config.raw_log_path if runtime_config.raw_logs_enabled else None,
         redacted_config=runtime_config.redacted_config,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tokenverify.model_capabilities import lookup_model_capability
-from tokenverify.models import EvidenceItem, ProbeResult
+from tokenverify.models import EvidenceItem, EvidenceTag, ProbeResult
 from tokenverify.providers.anthropic import build_messages_payload
 
 
@@ -32,6 +32,20 @@ def evaluate_thinking_outcome(
 ) -> ProbeResult:
     capability = lookup_model_capability(model)
     thinking_expected = capability.supports_extended_thinking is True
+    if response and _contains_cross_provider_reasoning(response):
+        return ProbeResult(
+            name="extended_thinking",
+            status="failed",
+            evidence=[
+                EvidenceItem(
+                    key="cross_provider_reasoning_leaked",
+                    weight="strong",
+                    passed=False,
+                    message="Response exposed provider-specific reasoning content that contradicts the claimed Claude boundary.",
+                    tags=[EvidenceTag.CROSS_PROVIDER_REASONING_LEAKED.value],
+                )
+            ],
+        )
     if error_message and _is_operational_error(error_message):
         return ProbeResult(
             name="extended_thinking",
@@ -56,6 +70,7 @@ def evaluate_thinking_outcome(
                     weight="strong",
                     passed=False,
                     message=f"Model is expected to support Extended Thinking but endpoint rejected it: {error_message}",
+                    tags=[EvidenceTag.EXTENDED_THINKING_REJECTED.value],
                 )
             ],
             errors=[error_message],
@@ -70,6 +85,7 @@ def evaluate_thinking_outcome(
                     weight="strong",
                     passed=True,
                     message="Endpoint returned a thinking content block for a thinking-capable model.",
+                    tags=[EvidenceTag.EXTENDED_THINKING_MATCH.value],
                 )
             ],
         )
@@ -82,6 +98,7 @@ def evaluate_thinking_outcome(
                 weight="strong",
                 passed=None if not thinking_expected else False,
                 message="Extended Thinking is not expected for this model." if not thinking_expected else "No thinking evidence was observed.",
+                tags=[] if not thinking_expected else [EvidenceTag.EXTENDED_THINKING_MISSING.value],
             )
         ],
     )
@@ -90,6 +107,21 @@ def evaluate_thinking_outcome(
 def _contains_thinking_block(response: dict) -> bool:
     content = response.get("content")
     return isinstance(content, list) and any(block.get("type") == "thinking" for block in content if isinstance(block, dict))
+
+
+def _contains_cross_provider_reasoning(response: dict) -> bool:
+    choices = response.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            message = choice.get("message")
+            if isinstance(delta, dict) and "reasoning_content" in delta:
+                return True
+            if isinstance(message, dict) and "reasoning_content" in message:
+                return True
+    return False
 
 
 def _is_operational_error(message: str) -> bool:

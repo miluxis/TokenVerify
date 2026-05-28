@@ -1,6 +1,27 @@
 from __future__ import annotations
 
-from tokenverify.models import ProviderEvent, StreamingMetrics
+from tokenverify.models import EvidenceItem, ProbeResult, ProviderEvent, RiskTag, StreamingMetrics
+
+
+def evaluate_streaming_features(events: list[ProviderEvent]) -> ProbeResult:
+    metrics = calculate_streaming_metrics(events)
+    evidence: list[EvidenceItem] = []
+    if metrics.is_synthetic_stream:
+        evidence.append(
+            EvidenceItem(
+                key="synthetic_stream_heuristic",
+                weight="weak",
+                passed=False,
+                message="Stream chunks were uniformly sized and emitted in a short burst; this is a heuristic risk indicator, not proof of provider forgery.",
+                tags=[RiskTag.SYNTHETIC_STREAM_SUSPECT.value, RiskTag.STREAM_UNIFORMITY_SUSPECT.value],
+            )
+        )
+    return ProbeResult(
+        name="streaming_features",
+        status="warning" if metrics.is_synthetic_stream else "passed",
+        evidence=evidence,
+        metrics=metrics,
+    )
 
 
 def calculate_streaming_metrics(events: list[ProviderEvent]) -> StreamingMetrics:

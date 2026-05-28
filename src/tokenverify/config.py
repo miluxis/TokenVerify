@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from tokenverify.models import EndpointConfig, RuntimeConfig
+from tokenverify.models import Claim, EndpointConfig, RuntimeConfig
 
 
 class ConfigError(ValueError):
@@ -60,6 +60,13 @@ def load_runtime_config(
             "model": endpoint.model,
             "api_key": endpoint.api_key,
             "headers": endpoint.headers,
+            "claim": {
+                "provider": endpoint.claim.provider if endpoint.claim else "anthropic",
+                "api_shape": endpoint.claim.api_shape if endpoint.claim else "native",
+                "model": endpoint.claim.model if endpoint.claim else endpoint.model,
+                "channel_claim": endpoint.claim.channel_claim if endpoint.claim else "unknown",
+                "region_claim": endpoint.claim.region_claim if endpoint.claim else None,
+            },
         },
         "output": str(output),
         "raw_logs": {"enabled": raw_logs_enabled, "path": str(raw_log_path) if raw_log_path else None},
@@ -123,14 +130,39 @@ def _build_endpoint(
         raise ConfigError(f"Endpoint {name} must define base_url.")
     if not model:
         raise ConfigError(f"Endpoint {name} must define model.")
+    normalized_base_url = str(base_url).rstrip("/")
+    normalized_model = str(model)
+    claim = _build_claim(data, normalized_model, normalized_base_url)
     return EndpointConfig(
         name=name,
-        base_url=str(base_url).rstrip("/"),
-        model=str(model),
+        base_url=normalized_base_url,
+        model=normalized_model,
         api_key=api_key,
         headers=dict(data.get("headers") or {}),
+        claim=claim,
     )
 
 
 def _optional_path(value: Any) -> Path | None:
     return Path(value) if value else None
+
+
+def _build_claim(data: dict[str, Any], model: str, base_url: str) -> Claim:
+    provider = str(data.get("provider") or "anthropic")
+    api_shape = str(data.get("api_shape") or _infer_api_shape(base_url))
+    return Claim(
+        provider=provider,
+        api_shape=api_shape,
+        model=model,
+        channel_claim=str(data.get("channel_claim") or "unknown"),
+        region_claim=str(data["region_claim"]) if data.get("region_claim") else None,
+    )
+
+
+def _infer_api_shape(base_url: str) -> str:
+    lower = base_url.lower().rstrip("/")
+    if "/v1/chat/completions" in lower:
+        return "openai-compatible"
+    if lower.endswith("/v1") and "anthropic.com" not in lower:
+        return "openai-compatible"
+    return "native"

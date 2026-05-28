@@ -11,7 +11,7 @@ def weak_evidence(key: str, passed: bool) -> EvidenceItem:
 
 
 def test_high_trust_when_protocol_and_thinking_match():
-    rating, breakdown = score_probe_results(
+    rating, breakdown, verdict = score_probe_results(
         [
             ProbeResult("messages_protocol", "passed", [strong_evidence("anthropic_messages_shape", True)]),
             ProbeResult("extended_thinking", "passed", [strong_evidence("extended_thinking_expected", True)]),
@@ -20,10 +20,11 @@ def test_high_trust_when_protocol_and_thinking_match():
 
     assert rating == Rating.HIGH_TRUST
     assert breakdown["strong_passed"] == 2
+    assert verdict.rating == Rating.HIGH_TRUST
 
 
 def test_low_trust_when_thinking_is_ignored_for_capable_model():
-    rating, breakdown = score_probe_results(
+    rating, breakdown, verdict = score_probe_results(
         [
             ProbeResult("messages_protocol", "passed", [strong_evidence("anthropic_messages_shape", True)]),
             ProbeResult("extended_thinking", "failed", [strong_evidence("extended_thinking_expected", False)]),
@@ -32,10 +33,11 @@ def test_low_trust_when_thinking_is_ignored_for_capable_model():
 
     assert rating == Rating.LOW_TRUST
     assert breakdown["strong_failed"] == 1
+    assert verdict.rating == Rating.LOW_TRUST
 
 
 def test_streaming_anomaly_only_weakly_affects_score():
-    rating, breakdown = score_probe_results(
+    rating, breakdown, verdict = score_probe_results(
         [
             ProbeResult("messages_protocol", "passed", [strong_evidence("anthropic_messages_shape", True)]),
             ProbeResult("extended_thinking", "passed", [strong_evidence("extended_thinking_expected", True)]),
@@ -50,18 +52,20 @@ def test_streaming_anomaly_only_weakly_affects_score():
 
     assert rating != Rating.LOW_TRUST
     assert breakdown["weak_failed"] == 1
+    assert verdict.risk_score > 0
 
 
 def test_auth_failure_is_inconclusive():
-    rating, _ = score_probe_results(
+    rating, _, verdict = score_probe_results(
         [ProbeResult("messages_protocol", "error", errors=["authentication failed: invalid x-api-key"])]
     )
 
     assert rating == Rating.INCONCLUSIVE
+    assert verdict.rating == Rating.INCONCLUSIVE
 
 
 def test_rate_limit_failure_is_inconclusive():
-    rating, breakdown = score_probe_results(
+    rating, breakdown, verdict = score_probe_results(
         [
             ProbeResult(
                 "extended_thinking",
@@ -74,3 +78,65 @@ def test_rate_limit_failure_is_inconclusive():
 
     assert rating == Rating.INCONCLUSIVE
     assert breakdown["strong_failed"] == 0
+    assert verdict.risk_score == 0
+
+
+def test_score_probe_results_returns_structured_verdict():
+    rating, breakdown, verdict = score_probe_results(
+        [
+            ProbeResult(
+                "messages_protocol",
+                "passed",
+                [EvidenceItem("anthropic_messages_shape", "strong", True, "ok", tags=["ANTHROPIC_NATIVE_SHAPE_MATCH"])],
+            ),
+            ProbeResult(
+                "extended_thinking",
+                "passed",
+                [EvidenceItem("extended_thinking_expected", "strong", True, "ok", tags=["EXTENDED_THINKING_MATCH"])],
+            ),
+        ]
+    )
+
+    assert rating == Rating.HIGH_TRUST
+    assert verdict.rating == Rating.HIGH_TRUST
+    assert verdict.authenticity_score >= 90
+    assert verdict.risk_score == 0
+    assert "ANTHROPIC_NATIVE_SHAPE_MATCH" in verdict.tags
+
+
+def test_high_risk_does_not_automatically_lower_authenticity_rating():
+    rating, breakdown, verdict = score_probe_results(
+        [
+            ProbeResult("messages_protocol", "passed", [strong_evidence("anthropic_messages_shape", True)]),
+            ProbeResult("extended_thinking", "passed", [strong_evidence("extended_thinking_expected", True)]),
+            ProbeResult(
+                "streaming_features",
+                "warning",
+                [
+                    EvidenceItem(
+                        "synthetic_stream_heuristic",
+                        "weak",
+                        False,
+                        "synthetic stream suspected",
+                        tags=["SYNTHETIC_STREAM_SUSPECT", "STREAM_UNIFORMITY_SUSPECT"],
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert rating == Rating.HIGH_TRUST
+    assert verdict.rating == Rating.HIGH_TRUST
+    assert verdict.authenticity_score >= 90
+    assert verdict.risk_score > 0
+
+
+def test_single_network_timeout_is_inconclusive_without_risk_score_spike():
+    rating, breakdown, verdict = score_probe_results(
+        [ProbeResult("streaming_features", "error", errors=["stream timeout after 5 seconds"])]
+    )
+
+    assert rating == Rating.INCONCLUSIVE
+    assert verdict.rating == Rating.INCONCLUSIVE
+    assert verdict.risk_score == 0
+    assert "TTFT_VARIANCE_HIGH" not in verdict.tags

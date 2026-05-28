@@ -41,3 +41,14 @@ def test_rate_limit_during_thinking_probe_is_operational_error():
     assert result.status == "error"
     assert result.evidence[0].passed is None
     assert "operational error" in result.evidence[0].message
+
+
+def test_cross_provider_reasoning_leak_is_strong_failure():
+    result = evaluate_thinking_outcome(
+        model="claude-sonnet-4-5",
+        response={"choices": [{"delta": {"reasoning_content": "hidden reasoning"}}]},
+    )
+
+    assert result.status == "failed"
+    assert result.evidence[0].passed is False
+    assert "CROSS_PROVIDER_REASONING_LEAKED" in result.evidence[0].tags

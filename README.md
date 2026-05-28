@@ -111,14 +111,25 @@ API keys are redacted from reports and raw logs.
 
 ## Report Ratings
 
-The Markdown report uses four ratings:
+The Markdown report separates two kinds of conclusions:
+
+- `Authenticity Assertions`: protocol, error schema, model capability, and thinking/reasoning block evidence that can support strong authenticity judgments.
+- `Heuristic Risk Profile`: timing, streaming regularity, synthetic stream, pooling, and channel-health symptoms. These produce a 0-100 risk score, not a probability and not a direct accusation.
+
+The report uses four authenticity ratings:
 
 - `高可信`: protocol and expected Extended Thinking behavior match.
 - `中可信`: core behavior mostly matches but has suspicious gaps.
 - `低可信`: strong evidence of non-Anthropic behavior or ignored Claude-native parameters.
 - `无法判定`: insufficient evidence, such as missing API key, auth failure, quota failure, or network failure.
 
-Streaming metrics are weak evidence. They can influence the rating only when repeated samples are extremely abnormal.
+The report also includes:
+
+- `authenticity_score`: 0-100, derived from strong evidence against the configured claim.
+- `risk_score`: 0-100, derived from weak channel-health heuristics.
+- `tags`: stable labels such as `ANTHROPIC_NATIVE_SHAPE_MATCH`, `CROSS_PROVIDER_REASONING_LEAKED`, or `SYNTHETIC_STREAM_SUSPECT` for future dashboard and routing use.
+
+Streaming metrics are weak evidence. A single timeout, disconnect, or TTFT spike is treated as a network or operational anomaly rather than direct channel-risk proof.
 
 ## Development
 

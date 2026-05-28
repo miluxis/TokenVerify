@@ -27,3 +27,11 @@ def test_openai_compatible_shape_emits_negative_evidence():
     assert result.status == "failed"
     assert result.evidence[0].passed is False
     assert "OpenAI-compatible" in result.evidence[0].message
+
+
+def test_messages_response_emits_shape_tags():
+    native = evaluate_messages_response({"type": "message", "role": "assistant", "content": [{"type": "text"}]})
+    openai_like = evaluate_messages_response({"choices": [{"message": {"content": "ok"}}]})
+
+    assert "ANTHROPIC_NATIVE_SHAPE_MATCH" in native.evidence[0].tags
+    assert "OPENAI_COMPATIBLE_SHAPE_DETECTED" in openai_like.evidence[0].tags

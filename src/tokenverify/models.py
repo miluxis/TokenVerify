@@ -13,6 +13,54 @@ class Rating(str, Enum):
     INCONCLUSIVE = "无法判定"
 
 
+class EvidenceTag(str, Enum):
+    ANTHROPIC_NATIVE_SHAPE_MATCH = "ANTHROPIC_NATIVE_SHAPE_MATCH"
+    ANTHROPIC_NATIVE_SHAPE_MISMATCH = "ANTHROPIC_NATIVE_SHAPE_MISMATCH"
+    OPENAI_COMPATIBLE_SHAPE_DETECTED = "OPENAI_COMPATIBLE_SHAPE_DETECTED"
+    GENERIC_PROXY_ERROR_DETECTED = "GENERIC_PROXY_ERROR_DETECTED"
+    ERROR_SCHEMA_MATCH = "ERROR_SCHEMA_MATCH"
+    ERROR_SCHEMA_MISMATCH = "ERROR_SCHEMA_MISMATCH"
+    STREAM_EVENT_SEQUENCE_MATCH = "STREAM_EVENT_SEQUENCE_MATCH"
+    STREAM_EVENT_SEQUENCE_MISMATCH = "STREAM_EVENT_SEQUENCE_MISMATCH"
+    EXTENDED_THINKING_MATCH = "EXTENDED_THINKING_MATCH"
+    EXTENDED_THINKING_MISSING = "EXTENDED_THINKING_MISSING"
+    EXTENDED_THINKING_REJECTED = "EXTENDED_THINKING_REJECTED"
+    EXTENDED_THINKING_IGNORED = "EXTENDED_THINKING_IGNORED"
+    MODEL_CAPABILITY_MATCH = "MODEL_CAPABILITY_MATCH"
+    MODEL_CAPABILITY_MISMATCH = "MODEL_CAPABILITY_MISMATCH"
+    CROSS_PROVIDER_REASONING_LEAKED = "CROSS_PROVIDER_REASONING_LEAKED"
+
+
+class RiskTag(str, Enum):
+    STREAM_UNIFORMITY_SUSPECT = "STREAM_UNIFORMITY_SUSPECT"
+    SYNTHETIC_STREAM_SUSPECT = "SYNTHETIC_STREAM_SUSPECT"
+    TTFT_VARIANCE_HIGH = "TTFT_VARIANCE_HIGH"
+    THROUGHPUT_ANOMALY = "THROUGHPUT_ANOMALY"
+    CONCURRENT_POOL_SUSPECT = "CONCURRENT_POOL_SUSPECT"
+    WEB_REVERSE_SUSPECT = "WEB_REVERSE_SUSPECT"
+    UNSTABLE_RELAY_SUSPECT = "UNSTABLE_RELAY_SUSPECT"
+    HOSTED_BY_AWS = "HOSTED_BY_AWS"
+    HOSTED_BY_AZURE = "HOSTED_BY_AZURE"
+    HOSTED_BY_UNKNOWN_PROXY = "HOSTED_BY_UNKNOWN_PROXY"
+
+
+@dataclass(frozen=True)
+class Claim:
+    model: str
+    provider: str = "anthropic"
+    api_shape: str = "native"
+    channel_claim: str = "unknown"
+    region_claim: str | None = None
+
+
+@dataclass(frozen=True)
+class Verdict:
+    rating: Rating
+    authenticity_score: int
+    risk_score: int
+    tags: list[str] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class EndpointConfig:
     name: str
@@ -20,6 +68,7 @@ class EndpointConfig:
     model: str
     api_key: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
+    claim: Claim | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +96,7 @@ class EvidenceItem:
     passed: bool | None
     message: str
     details: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -75,6 +125,8 @@ class AuditResult:
     probe_results: list[ProbeResult]
     rating: Rating
     score_breakdown: dict[str, int]
+    verdict: Verdict | None = None
+    claim: Claim | None = None
     report_warnings: list[str] = field(default_factory=list)
     raw_log_path: Path | None = None
     redacted_config: dict[str, Any] = field(default_factory=dict)

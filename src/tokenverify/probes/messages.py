@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tokenverify.models import EvidenceItem, ProbeResult
+from tokenverify.models import EvidenceItem, EvidenceTag, ProbeResult
 
 
 def evaluate_messages_response(response: dict) -> ProbeResult:
@@ -21,6 +21,7 @@ def evaluate_messages_response(response: dict) -> ProbeResult:
                     weight="strong",
                     passed=True,
                     message="Response matches Anthropic Messages content block shape.",
+                    tags=[EvidenceTag.ANTHROPIC_NATIVE_SHAPE_MATCH.value],
                 )
             ],
         )
@@ -39,6 +40,11 @@ def evaluate_messages_response(response: dict) -> ProbeResult:
                 weight="strong",
                 passed=False,
                 message=message,
+                tags=[
+                    EvidenceTag.OPENAI_COMPATIBLE_SHAPE_DETECTED.value
+                    if looks_openai
+                    else EvidenceTag.ANTHROPIC_NATIVE_SHAPE_MISMATCH.value
+                ],
             )
         ],
     )
