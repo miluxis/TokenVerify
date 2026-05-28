@@ -1,0 +1,13 @@
+selected_endpoint: primary
+output: reports/claude-audit.md
+raw_logs:
+  enabled: false
+  path: null
+endpoints:
+  - name: primary
+    base_url: https://api.anthropic.com
+    model: claude-sonnet-4-5
+    api_key_env: ANTHROPIC_API_KEY
+extension_probes:
+  - name: appendix-only-example
+    prompt: "This custom probe is observation-only in Phase 1."

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokenverify"
+version = "0.1.0"
+description = "Claude relay authenticity audit CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28",
+  "PyYAML>=6.0",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+tokenverify = "tokenverify.cli:app"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-m 'not real_network'"
+markers = [
+  "real_network: optional tests that require a real Anthropic-compatible endpoint",
+]
