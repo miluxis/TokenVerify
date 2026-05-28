@@ -5,6 +5,22 @@ import json
 from tokenverify.models import AuditResult, ProbeResult, RiskTag, StreamingMetrics
 
 
+PROBE_TITLES = {
+    "messages_protocol": "Messages Protocol Probe",
+    "extended_thinking": "Extended Thinking Probe",
+    "chat_completions_shape": "Chat Completions Shape Probe",
+    "claude_claim_consistency": "Claude Model Claim Consistency Probe",
+    "reasoning_leakage": "Reasoning Leakage Probe",
+}
+NATIVE_PROBE_ORDER = ("messages_protocol", "extended_thinking", "streaming_features")
+OPENAI_COMPATIBLE_PROBE_ORDER = (
+    "chat_completions_shape",
+    "claude_claim_consistency",
+    "reasoning_leakage",
+    "openai_compatible_streaming",
+)
+
+
 def render_markdown(result: AuditResult) -> str:
     lines = [
         "# TokenVerify Claude Audit Report",
@@ -35,9 +51,7 @@ def render_markdown(result: AuditResult) -> str:
         lines.append(f"- `{key}`: {value}")
     lines.extend(_authenticity_assertions_section(result.probe_results))
     lines.extend(_heuristic_risk_section(result))
-    lines.extend(_probe_section("Messages Protocol Probe", _find_probe(result.probe_results, "messages_protocol")))
-    lines.extend(_probe_section("Extended Thinking Probe", _find_probe(result.probe_results, "extended_thinking")))
-    lines.extend(_streaming_section(_find_probe(result.probe_results, "streaming_features")))
+    lines.extend(_probe_sections_for_result(result.probe_results))
     lines.extend(["", "## Errors and Warnings"])
     warnings = list(result.report_warnings)
     for probe in result.probe_results:
@@ -67,6 +81,25 @@ def render_markdown(result: AuditResult) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _probe_sections_for_result(probes: list[ProbeResult]) -> list[str]:
+    names = {probe.name for probe in probes}
+    if names.intersection(OPENAI_COMPATIBLE_PROBE_ORDER):
+        ordered_names = OPENAI_COMPATIBLE_PROBE_ORDER
+    else:
+        ordered_names = NATIVE_PROBE_ORDER
+
+    lines: list[str] = []
+    for name in ordered_names:
+        probe = _find_probe(probes, name)
+        if name == "streaming_features":
+            lines.extend(_streaming_section("Streaming Metrics", probe))
+        elif name == "openai_compatible_streaming":
+            lines.extend(_streaming_section("OpenAI-Compatible Streaming Metrics", probe))
+        else:
+            lines.extend(_probe_section(PROBE_TITLES[name], probe))
+    return lines
 
 
 def _probe_section(title: str, probe: ProbeResult | None) -> list[str]:
@@ -122,8 +155,8 @@ def _heuristic_risk_section(result: AuditResult) -> list[str]:
     return lines
 
 
-def _streaming_section(probe: ProbeResult | None) -> list[str]:
-    lines = ["", "## Streaming Metrics"]
+def _streaming_section(title: str, probe: ProbeResult | None) -> list[str]:
+    lines = ["", f"## {title}"]
     if probe is None or not isinstance(probe.metrics, StreamingMetrics):
         return lines + ["", "- Not run"]
     metrics = probe.metrics

@@ -36,3 +36,14 @@ def test_verdict_exposes_authenticity_and_risk_scores_separately():
 def test_tag_values_are_stable_for_dashboard_rules():
     assert EvidenceTag.CROSS_PROVIDER_REASONING_LEAKED.value == "CROSS_PROVIDER_REASONING_LEAKED"
     assert RiskTag.TTFT_VARIANCE_HIGH.value == "TTFT_VARIANCE_HIGH"
+
+
+def test_openai_compatible_relay_tag_values_are_stable():
+    assert EvidenceTag.OPENAI_COMPATIBLE_SHAPE_MATCH.value == "OPENAI_COMPATIBLE_SHAPE_MATCH"
+    assert EvidenceTag.ANTHROPIC_NATIVE_SHAPE_DETECTED.value == "ANTHROPIC_NATIVE_SHAPE_DETECTED"
+    assert EvidenceTag.CLAUDE_MODEL_CLAIM_MATCH.value == "CLAUDE_MODEL_CLAIM_MATCH"
+    assert EvidenceTag.CLAUDE_MODEL_CLAIM_MISMATCH.value == "CLAUDE_MODEL_CLAIM_MISMATCH"
+    assert EvidenceTag.OPENAI_STREAM_SEQUENCE_MATCH.value == "OPENAI_STREAM_SEQUENCE_MATCH"
+    assert RiskTag.CROSS_PROVIDER_FINISH_REASON_SUSPECT.value == "CROSS_PROVIDER_FINISH_REASON_SUSPECT"
+    assert RiskTag.SELF_RELAY_LOOP_DETECTED.value == "SELF_RELAY_LOOP_DETECTED"
+    assert RiskTag.SYNTHETIC_THINKING_SUSPECT.value == "SYNTHETIC_THINKING_SUSPECT"

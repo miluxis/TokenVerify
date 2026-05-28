@@ -4,9 +4,20 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tokenverify.models import AuditResult, ProbeResult, ProviderEvent
+from tokenverify.models import AuditResult, EvidenceItem, ProbeResult, ProviderEvent, RiskTag
 from tokenverify.providers.anthropic import AnthropicMessagesClient, build_messages_payload
+from tokenverify.providers.openai_compatible import (
+    OpenAICompatibleChatClient,
+    SelfRelayLoopError,
+    build_chat_completions_payload,
+)
 from tokenverify.probes.messages import evaluate_messages_response
+from tokenverify.probes.openai_compatible import (
+    evaluate_chat_completions_response,
+    evaluate_claude_claim_consistency,
+    evaluate_openai_streaming_features,
+    evaluate_reasoning_leakage,
+)
 from tokenverify.probes.streaming import evaluate_streaming_features
 from tokenverify.probes.thinking import build_thinking_payload, evaluate_thinking_outcome
 from tokenverify.scoring import score_probe_results
@@ -22,6 +33,10 @@ class AuditObservations:
 
 
 def run_audit(runtime_config, observations: AuditObservations | None = None) -> AuditResult:
+    claim = runtime_config.endpoint.claim
+    if claim and claim.provider == "anthropic" and claim.api_shape == "openai-compatible":
+        return _run_openai_compatible_claude_audit(runtime_config, observations)
+
     observations = observations or _collect_live_observations(runtime_config)
     probe_results: list[ProbeResult] = []
     if observations.thinking_error == "API key is required for live audit.":
@@ -84,6 +99,86 @@ def _collect_live_observations(runtime_config) -> AuditObservations:
         messages_error=messages_error,
         thinking_response=thinking_response,
         thinking_error=thinking_error,
+        stream_events=stream_events,
+    )
+
+
+def _run_openai_compatible_claude_audit(runtime_config, observations: AuditObservations | None) -> AuditResult:
+    observations = observations or _collect_openai_compatible_observations(runtime_config)
+    probe_results: list[ProbeResult] = []
+
+    if observations.messages_error and "self-relay-loop" in observations.messages_error.lower():
+        probe_results.append(
+            ProbeResult(
+                "self_relay_loop_safety_gate",
+                "error",
+                [
+                    EvidenceItem(
+                        "self_relay_loop_detected",
+                        "weak",
+                        False,
+                        observations.messages_error,
+                        tags=[RiskTag.SELF_RELAY_LOOP_DETECTED.value],
+                    )
+                ],
+                errors=[observations.messages_error],
+            )
+        )
+        rating, breakdown, verdict = score_probe_results(probe_results)
+        return _result(runtime_config, probe_results, rating, breakdown, verdict)
+
+    if observations.messages_response is not None:
+        probe_results.append(evaluate_chat_completions_response(observations.messages_response))
+        probe_results.append(
+            evaluate_claude_claim_consistency(runtime_config.endpoint.model, observations.messages_response)
+        )
+        probe_results.append(evaluate_reasoning_leakage(observations.messages_response))
+    if observations.messages_error is not None:
+        probe_results.append(ProbeResult("chat_completions_shape", "error", errors=[observations.messages_error]))
+    if observations.stream_events:
+        probe_results.append(evaluate_openai_streaming_features(observations.stream_events))
+        _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
+
+    rating, breakdown, verdict = score_probe_results(probe_results)
+    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+
+
+def _collect_openai_compatible_observations(runtime_config) -> AuditObservations:
+    if not runtime_config.endpoint.api_key:
+        return AuditObservations(messages_error="API key is required for live audit.")
+
+    client = OpenAICompatibleChatClient(
+        base_url=runtime_config.endpoint.base_url,
+        api_key=runtime_config.endpoint.api_key,
+        headers=runtime_config.endpoint.headers,
+    )
+    payload = build_chat_completions_payload(
+        model=runtime_config.endpoint.model,
+        messages=[{"role": "user", "content": "Reply with exactly: ok"}],
+        max_tokens=64,
+        stream=False,
+    )
+    messages_response = None
+    messages_error = None
+    stream_events: list[ProviderEvent] = []
+    try:
+        messages_response = client.create_chat_completion(payload)
+    except SelfRelayLoopError as exc:
+        messages_error = f"self-relay-loop: {exc}"
+    except Exception as exc:  # Provider errors are normalized into inconclusive/negative evidence downstream.
+        messages_error = str(exc)
+
+    try:
+        stream_payload = {**payload, "stream": True}
+        stream_events = client.stream_chat_completion_events(stream_payload)
+    except SelfRelayLoopError as exc:
+        messages_error = f"self-relay-loop: {exc}"
+    except Exception:
+        stream_events = []
+
+    return AuditObservations(
+        messages_response=messages_response,
+        messages_error=messages_error,
         stream_events=stream_events,
     )
 

@@ -68,6 +68,7 @@ def _is_inconclusive(probe_results: list[ProbeResult]) -> bool:
         "disconnect",
         "connection reset",
         "network",
+        "self-relay-loop",
     )
     for result in probe_results:
         joined_errors = " ".join(result.errors).lower()

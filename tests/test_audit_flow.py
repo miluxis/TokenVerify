@@ -99,3 +99,89 @@ endpoints:
     assert "404 not found" in result.probe_results[0].errors[0]
     assert result.probe_results[1].name == "extended_thinking"
     assert result.probe_results[1].status == "failed"
+
+
+def test_openai_compatible_claim_uses_chat_completion_observations(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: relay
+endpoints:
+  - name: relay
+    base_url: https://relay.example/v1
+    provider: anthropic
+    api_shape: openai-compatible
+    model: claude-sonnet-4.5
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={"model": "claude-sonnet-4.5", "choices": [{"message": {"content": "ok"}}]},
+        stream_events=[
+            ProviderEvent(0.0, "chat.completion.chunk", text_length=2, data={"finish_reason": None}),
+            ProviderEvent(0.1, "chat.completion.chunk", text_length=2, data={"finish_reason": "stop"}),
+        ],
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    assert result.target_summary["claimed_api_shape"] == "openai-compatible"
+    assert [probe.name for probe in result.probe_results] == [
+        "chat_completions_shape",
+        "claude_claim_consistency",
+        "reasoning_leakage",
+        "openai_compatible_streaming",
+    ]
+    assert result.rating == Rating.HIGH_TRUST
+
+
+def test_openai_compatible_self_relay_loop_short_circuits(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: relay
+endpoints:
+  - name: relay
+    base_url: https://relay.example/v1
+    provider: anthropic
+    api_shape: openai-compatible
+    model: claude-sonnet-4.5
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(messages_error="self-relay-loop: TokenVerify scan marker was echoed")
+
+    result = run_audit(runtime_config, observations=observations)
+
+    assert result.rating == Rating.INCONCLUSIVE
+    assert "SELF_RELAY_LOOP_DETECTED" in result.verdict.tags
+
+
+def test_scoring_counts_openai_compatible_probe_evidence_generically(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: relay
+endpoints:
+  - name: relay
+    base_url: https://relay.example/v1
+    provider: anthropic
+    api_shape: openai-compatible
+    model: claude-sonnet-4.5
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={"model": "claude-sonnet-4.5", "choices": [{"message": {"content": "ok"}}]},
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    assert result.score_breakdown["strong_passed"] >= 2
+    assert result.verdict.authenticity_score >= 90

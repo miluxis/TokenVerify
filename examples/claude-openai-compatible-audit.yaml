@@ -1,0 +1,15 @@
+selected_endpoint: claude-openai-compatible
+output: reports/claude-openai-compatible-audit.md
+raw_logs:
+  enabled: false
+  path: null
+endpoints:
+  - name: claude-openai-compatible
+    base_url: https://relay.example.com/v1
+    provider: anthropic
+    api_shape: openai-compatible
+    model: claude-sonnet-4.5
+    api_key_env: CLAUDE_RELAY_API_KEY
+extension_probes:
+  - name: appendix-only-example
+    prompt: "This custom probe is observation-only for relay audits."
