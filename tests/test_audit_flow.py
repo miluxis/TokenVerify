@@ -131,6 +131,7 @@ endpoints:
     assert [probe.name for probe in result.probe_results] == [
         "chat_completions_shape",
         "claude_claim_consistency",
+        "claude_version_thinking_capability",
         "reasoning_leakage",
         "openai_compatible_streaming",
     ]
@@ -185,3 +186,49 @@ endpoints:
 
     assert result.score_breakdown["strong_passed"] >= 2
     assert result.verdict.authenticity_score >= 90
+
+
+def test_openai_compatible_audit_includes_deep_dive_and_channel_risk_probes(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: relay
+endpoints:
+  - name: relay
+    base_url: https://relay.example/v1
+    provider: anthropic
+    api_shape: openai-compatible
+    model: claude-sonnet-4.5
+    channel_claim: openrouter
+    region_claim: us-east-1
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={
+            "model": "anthropic/claude-sonnet-4.5",
+            "system_fingerprint": "claude-sonnet-4.5-20250929",
+            "choices": [{"message": {"reasoning": "dedicated reasoning field"}}],
+        },
+        repeated_messages_responses=[
+            {"model": "anthropic/claude-sonnet-4.5"},
+            {"model": "openai/gpt-4o"},
+        ],
+        response_headers={"x-request-id": "req_123", "x-openrouter-provider": "anthropic", "cf-ray": "abc-SJC"},
+        messages_error="HTTP 429: upstream rate limit exceeded by account pool",
+        latency_samples=[0.2, 0.25, 0.22, 3.5, 3.7],
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    probe_names = [probe.name for probe in result.probe_results]
+    assert "mixed_provider_consistency" in probe_names
+    assert "claude_version_thinking_capability" in probe_names
+    assert "channel_risk_observations" in probe_names
+    assert "repeated_run_variance" in probe_names
+    assert "MIXED_PROVIDER_INCONSISTENCY_DETECTED" in result.verdict.tags
+    assert "CLAUDE_VERSION_FIELD_LEAKED" in result.verdict.tags
+    assert "RELAY_HEADER_SUSPECT" in result.verdict.tags
+    assert "TTFT_VARIANCE_HIGH" in result.verdict.tags

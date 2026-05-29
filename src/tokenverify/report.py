@@ -10,13 +10,21 @@ PROBE_TITLES = {
     "extended_thinking": "Extended Thinking Probe",
     "chat_completions_shape": "Chat Completions Shape Probe",
     "claude_claim_consistency": "Claude Model Claim Consistency Probe",
+    "mixed_provider_consistency": "Mixed Provider Consistency Probe",
+    "claude_version_thinking_capability": "Claude Version And Thinking Capability Probe",
     "reasoning_leakage": "Reasoning Leakage Probe",
+    "channel_risk_observations": "Channel Risk Observations Probe",
+    "repeated_run_variance": "Repeated Run Variance Probe",
 }
 NATIVE_PROBE_ORDER = ("messages_protocol", "extended_thinking", "streaming_features")
 OPENAI_COMPATIBLE_PROBE_ORDER = (
     "chat_completions_shape",
     "claude_claim_consistency",
+    "mixed_provider_consistency",
+    "claude_version_thinking_capability",
     "reasoning_leakage",
+    "channel_risk_observations",
+    "repeated_run_variance",
     "openai_compatible_streaming",
 )
 

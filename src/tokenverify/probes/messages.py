@@ -48,3 +48,40 @@ def evaluate_messages_response(response: dict) -> ProbeResult:
             )
         ],
     )
+
+
+def evaluate_messages_error_schema(payload: dict) -> ProbeResult:
+    error = payload.get("error") if isinstance(payload, dict) else None
+    is_anthropic_error = (
+        payload.get("type") == "error"
+        and isinstance(error, dict)
+        and isinstance(error.get("type"), str)
+        and isinstance(error.get("message"), str)
+    )
+    if is_anthropic_error:
+        return ProbeResult(
+            name="messages_error_schema",
+            status="passed",
+            evidence=[
+                EvidenceItem(
+                    key="anthropic_error_schema",
+                    weight="strong",
+                    passed=True,
+                    message="Error payload matches Anthropic native error schema.",
+                    tags=[EvidenceTag.ERROR_SCHEMA_MATCH.value],
+                )
+            ],
+        )
+    return ProbeResult(
+        name="messages_error_schema",
+        status="failed",
+        evidence=[
+            EvidenceItem(
+                key="anthropic_error_schema",
+                weight="strong",
+                passed=False,
+                message="Error payload does not match Anthropic native error schema.",
+                tags=[EvidenceTag.ERROR_SCHEMA_MISMATCH.value],
+            )
+        ],
+    )

@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from tokenverify.models import EvidenceItem, ProbeResult, ProviderEvent, RiskTag, StreamingMetrics
+from tokenverify.models import EvidenceItem, EvidenceTag, ProbeResult, ProviderEvent, RiskTag, StreamingMetrics
 
 
 def evaluate_streaming_features(events: list[ProviderEvent]) -> ProbeResult:
     metrics = calculate_streaming_metrics(events)
     evidence: list[EvidenceItem] = []
+    sequence_evidence = _native_stream_sequence_evidence(events)
+    if sequence_evidence is not None:
+        evidence.append(sequence_evidence)
+        if sequence_evidence.passed is False:
+            return ProbeResult(
+                name="streaming_features",
+                status="failed",
+                evidence=evidence,
+                metrics=metrics,
+            )
     if metrics.is_synthetic_stream:
         evidence.append(
             EvidenceItem(
@@ -22,6 +32,36 @@ def evaluate_streaming_features(events: list[ProviderEvent]) -> ProbeResult:
         evidence=evidence,
         metrics=metrics,
     )
+
+
+def _native_stream_sequence_evidence(events: list[ProviderEvent]) -> EvidenceItem | None:
+    event_types = [event.event_type for event in events]
+    if not event_types:
+        return None
+    if any(event_type.startswith("chat.completion") for event_type in event_types):
+        return EvidenceItem(
+            key="anthropic_stream_event_sequence",
+            weight="strong",
+            passed=False,
+            message="Stream emitted OpenAI-compatible chunk events during a native Anthropic stream probe.",
+            details={"event_types": event_types},
+            tags=[EvidenceTag.STREAM_EVENT_SEQUENCE_MISMATCH.value],
+        )
+    has_native_start = event_types[0] == "message_start"
+    has_text_delta = "content_block_delta" in event_types
+    has_terminal = "message_stop" in event_types or any(
+        event.event_type == "message_delta" and event.data.get("stop_reason") for event in events
+    )
+    if has_native_start and has_text_delta and has_terminal:
+        return EvidenceItem(
+            key="anthropic_stream_event_sequence",
+            weight="strong",
+            passed=True,
+            message="Stream follows Anthropic native message/content delta event sequence.",
+            details={"event_types": event_types},
+            tags=[EvidenceTag.STREAM_EVENT_SEQUENCE_MATCH.value],
+        )
+    return None
 
 
 def calculate_streaming_metrics(events: list[ProviderEvent]) -> StreamingMetrics:

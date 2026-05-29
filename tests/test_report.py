@@ -118,7 +118,22 @@ def test_markdown_renders_openai_compatible_probe_sections():
                 "passed",
                 [EvidenceItem("claude_model_claim", "strong", True, "model matches")],
             ),
+            ProbeResult(
+                "mixed_provider_consistency",
+                "passed",
+                [EvidenceItem("mixed_provider_inconsistency", "strong", True, "no mixed provider drift")],
+            ),
+            ProbeResult(
+                "claude_version_thinking_capability",
+                "passed",
+                [EvidenceItem("claude_thinking_capability", "strong", True, "thinking field observed")],
+            ),
             ProbeResult("reasoning_leakage", "passed", []),
+            ProbeResult(
+                "channel_risk_observations",
+                "warning",
+                [EvidenceItem("relay_header_markers", "weak", False, "relay header observed")],
+            ),
             ProbeResult(
                 "openai_compatible_streaming",
                 "passed",
@@ -132,5 +147,8 @@ def test_markdown_renders_openai_compatible_probe_sections():
 
     assert "## Chat Completions Shape Probe" in markdown
     assert "## Claude Model Claim Consistency Probe" in markdown
+    assert "## Mixed Provider Consistency Probe" in markdown
+    assert "## Claude Version And Thinking Capability Probe" in markdown
     assert "## Reasoning Leakage Probe" in markdown
+    assert "## Channel Risk Observations Probe" in markdown
     assert "## OpenAI-Compatible Streaming Metrics" in markdown

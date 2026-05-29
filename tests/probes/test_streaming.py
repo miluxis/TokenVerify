@@ -46,3 +46,34 @@ def test_synthetic_stream_probe_emits_risk_tags():
     assert result.evidence[0].passed is False
     assert "SYNTHETIC_STREAM_SUSPECT" in result.evidence[0].tags
     assert "STREAM_UNIFORMITY_SUSPECT" in result.evidence[0].tags
+
+
+def test_native_stream_event_sequence_emits_strong_match_evidence():
+    result = evaluate_streaming_features(
+        [
+            ProviderEvent(0.0, "message_start"),
+            ProviderEvent(0.1, "content_block_start"),
+            ProviderEvent(0.2, "content_block_delta", text_length=2),
+            ProviderEvent(0.3, "content_block_stop"),
+            ProviderEvent(0.4, "message_delta", data={"stop_reason": "end_turn"}),
+            ProviderEvent(0.5, "message_stop"),
+        ]
+    )
+
+    assert result.status == "passed"
+    assert result.evidence[0].weight == "strong"
+    assert result.evidence[0].passed is True
+    assert "STREAM_EVENT_SEQUENCE_MATCH" in result.evidence[0].tags
+
+
+def test_openai_stream_event_in_native_stream_emits_strong_mismatch_evidence():
+    result = evaluate_streaming_features(
+        [
+            ProviderEvent(0.0, "message_start"),
+            ProviderEvent(0.1, "chat.completion.chunk", text_length=2),
+        ]
+    )
+
+    assert result.status == "failed"
+    assert result.evidence[0].passed is False
+    assert "STREAM_EVENT_SEQUENCE_MISMATCH" in result.evidence[0].tags

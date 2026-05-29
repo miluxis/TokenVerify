@@ -13,10 +13,14 @@ from tokenverify.providers.openai_compatible import (
 )
 from tokenverify.probes.messages import evaluate_messages_response
 from tokenverify.probes.openai_compatible import (
+    evaluate_channel_risk_observations,
     evaluate_chat_completions_response,
     evaluate_claude_claim_consistency,
+    evaluate_claude_version_and_thinking_capability,
+    evaluate_mixed_provider_consistency,
     evaluate_openai_streaming_features,
     evaluate_reasoning_leakage,
+    evaluate_repeated_run_variance,
 )
 from tokenverify.probes.streaming import evaluate_streaming_features
 from tokenverify.probes.thinking import build_thinking_payload, evaluate_thinking_outcome
@@ -30,6 +34,9 @@ class AuditObservations:
     thinking_response: dict | None = None
     thinking_error: str | None = None
     stream_events: list[ProviderEvent] = field(default_factory=list)
+    repeated_messages_responses: list[dict] = field(default_factory=list)
+    response_headers: dict[str, str] = field(default_factory=dict)
+    latency_samples: list[float] = field(default_factory=list)
 
 
 def run_audit(runtime_config, observations: AuditObservations | None = None) -> AuditResult:
@@ -132,9 +139,42 @@ def _run_openai_compatible_claude_audit(runtime_config, observations: AuditObser
         probe_results.append(
             evaluate_claude_claim_consistency(runtime_config.endpoint.model, observations.messages_response)
         )
+        repeated_responses = [observations.messages_response, *observations.repeated_messages_responses]
+        if len(repeated_responses) > 1:
+            probe_results.append(evaluate_mixed_provider_consistency(repeated_responses))
+        probe_results.append(
+            evaluate_claude_version_and_thinking_capability(
+                claimed_model=runtime_config.endpoint.model,
+                response=observations.messages_response,
+                thinking_error=observations.thinking_error,
+            )
+        )
         probe_results.append(evaluate_reasoning_leakage(observations.messages_response))
     if observations.messages_error is not None:
         probe_results.append(ProbeResult("chat_completions_shape", "error", errors=[observations.messages_error]))
+    if observations.response_headers or observations.latency_samples or observations.repeated_messages_responses:
+        observed_models = [
+            str(response.get("model"))
+            for response in ([observations.messages_response] if observations.messages_response else [])
+            + observations.repeated_messages_responses
+            if response.get("model")
+        ]
+        probe_results.append(
+            evaluate_channel_risk_observations(
+                response_headers=observations.response_headers,
+                error_message=observations.messages_error,
+                region_claim=runtime_config.endpoint.claim.region_claim if runtime_config.endpoint.claim else None,
+                latency_samples=observations.latency_samples,
+                observed_models=observed_models,
+            )
+        )
+        if observations.latency_samples:
+            probe_results.append(
+                evaluate_repeated_run_variance(
+                    latency_samples=observations.latency_samples,
+                    observed_models=observed_models,
+                )
+            )
     if observations.stream_events:
         probe_results.append(evaluate_openai_streaming_features(observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)

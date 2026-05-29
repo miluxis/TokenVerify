@@ -104,6 +104,55 @@ def evaluate_thinking_outcome(
     )
 
 
+def evaluate_thinking_parameter_compatibility(
+    model: str,
+    accepted_parameters: list[str],
+    rejected_parameters: list[str],
+) -> ProbeResult:
+    capability = lookup_model_capability(model)
+    thinking_expected = capability.supports_extended_thinking is True
+    if not thinking_expected:
+        return ProbeResult(
+            name="thinking_parameter_compatibility",
+            status="skipped",
+            evidence=[
+                EvidenceItem(
+                    key="thinking_parameter_compatibility",
+                    weight="strong",
+                    passed=None,
+                    message=f"Thinking parameters are not expected for this capability tier ({capability.confidence} confidence: {capability.confidence_reason}).",
+                )
+            ],
+        )
+
+    accepted = any(parameter.startswith("thinking") for parameter in accepted_parameters)
+    rejected = any(parameter.startswith("thinking") for parameter in rejected_parameters)
+    passed = accepted and not rejected
+    return ProbeResult(
+        name="thinking_parameter_compatibility",
+        status="passed" if passed else "failed",
+        evidence=[
+            EvidenceItem(
+                key="thinking_parameter_compatibility",
+                weight="strong",
+                passed=passed,
+                message=(
+                    f"Thinking parameter behavior matches the expected Claude capability tier "
+                    f"({capability.confidence} confidence: {capability.confidence_reason})."
+                    if passed
+                    else f"Thinking parameter behavior contradicts the expected Claude capability tier ({capability.confidence} confidence)."
+                ),
+                details={"accepted_parameters": accepted_parameters, "rejected_parameters": rejected_parameters},
+                tags=[
+                    EvidenceTag.CLAUDE_THINKING_CAPABILITY_MATCH.value
+                    if passed
+                    else EvidenceTag.CLAUDE_THINKING_CAPABILITY_MISMATCH.value
+                ],
+            )
+        ],
+    )
+
+
 def _contains_thinking_block(response: dict) -> bool:
     content = response.get("content")
     return isinstance(content, list) and any(block.get("type") == "thinking" for block in content if isinstance(block, dict))
