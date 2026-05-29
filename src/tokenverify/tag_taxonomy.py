@@ -14,21 +14,28 @@ class TagTaxonomyCategory(str, Enum):
 
 def tag_taxonomy() -> dict[TagTaxonomyCategory, tuple[str, ...]]:
     cross_provider = (
+        EvidenceTag.CROSS_PROVIDER_MODEL_LEAKED.value,
         EvidenceTag.CROSS_PROVIDER_REASONING_LEAKED.value,
         RiskTag.CROSS_PROVIDER_FINISH_REASON_SUSPECT.value,
+    )
+    evidence_risk = (
+        EvidenceTag.OPENAI_OFFICIAL_CHANNEL_MISMATCH.value,
     )
     operational = (
         RiskTag.SELF_RELAY_LOOP_DETECTED.value,
     )
-    risk = tuple(
-        tag.value
-        for tag in RiskTag
-        if tag.value not in {*cross_provider, *operational}
+    risk = (
+        *evidence_risk,
+        *tuple(
+            tag.value
+            for tag in RiskTag
+            if tag.value not in {*cross_provider, *operational}
+        ),
     )
     authenticity = tuple(
         tag.value
         for tag in EvidenceTag
-        if tag.value not in cross_provider
+        if tag.value not in {*cross_provider, *evidence_risk}
     )
     return {
         TagTaxonomyCategory.AUTHENTICITY: authenticity,

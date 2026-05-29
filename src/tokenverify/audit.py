@@ -13,6 +13,13 @@ from tokenverify.providers.openai_compatible import (
     build_chat_completions_payload,
 )
 from tokenverify.probes.messages import evaluate_messages_response
+from tokenverify.probes.openai import (
+    evaluate_openai_channel,
+    evaluate_openai_chat_completion_response,
+    evaluate_openai_model_claim,
+    evaluate_openai_reasoning_capability,
+    evaluate_openai_streaming_features as evaluate_openai_model_streaming_features,
+)
 from tokenverify.probes.openai_compatible import (
     evaluate_channel_risk_observations,
     evaluate_chat_completions_response,
@@ -38,6 +45,10 @@ class AuditObservations:
     repeated_messages_responses: list[dict] = field(default_factory=list)
     response_headers: dict[str, str] = field(default_factory=dict)
     latency_samples: list[float] = field(default_factory=list)
+    accepted_parameters: list[str] = field(default_factory=list)
+    rejected_parameters: list[str] = field(default_factory=list)
+    reasoning_tokens: int | None = None
+    is_trivial_prompt: bool = False
 
 
 def run_audit(runtime_config, observations: AuditObservations | None = None) -> AuditResult:
@@ -51,6 +62,8 @@ def run_audit(runtime_config, observations: AuditObservations | None = None) -> 
             return _result(runtime_config, probe_results, rating, breakdown, verdict)
         if plan.path == "anthropic_openai_compatible":
             return _run_openai_compatible_claude_audit(runtime_config, observations)
+        if plan.path == "openai_openai_compatible":
+            return _run_openai_compatible_audit(runtime_config, observations)
 
     observations = observations or _collect_live_observations(runtime_config)
     probe_results: list[ProbeResult] = []
@@ -229,6 +242,56 @@ def _collect_openai_compatible_observations(runtime_config) -> AuditObservations
         messages_error=messages_error,
         stream_events=stream_events,
     )
+
+
+def _run_openai_compatible_audit(runtime_config, observations: AuditObservations | None) -> AuditResult:
+    observations = observations or _collect_openai_compatible_observations(runtime_config)
+    probe_results: list[ProbeResult] = []
+
+    if observations.messages_response is not None:
+        probe_results.append(evaluate_openai_chat_completion_response(observations.messages_response))
+        probe_results.append(evaluate_openai_model_claim(runtime_config.endpoint.model, observations.messages_response))
+        if observations.accepted_parameters or observations.rejected_parameters:
+            probe_results.append(
+                evaluate_openai_reasoning_capability(
+                    runtime_config.endpoint.model,
+                    accepted_parameters=observations.accepted_parameters,
+                    rejected_parameters=observations.rejected_parameters,
+                    reasoning_tokens=observations.reasoning_tokens,
+                    is_trivial_prompt=observations.is_trivial_prompt,
+                )
+            )
+        else:
+            probe_results.append(
+                ProbeResult(
+                    "openai_reasoning_capability",
+                    "skipped",
+                    [
+                        EvidenceItem(
+                            "openai_reasoning_capability",
+                            "strong",
+                            None,
+                            "No reasoning_effort parameter acceptance observation was available.",
+                        )
+                    ],
+                )
+            )
+    if observations.messages_error is not None:
+        probe_results.append(ProbeResult("openai_chat_completions_shape", "error", errors=[observations.messages_error]))
+    probe_results.append(
+        evaluate_openai_channel(
+            base_url=runtime_config.endpoint.base_url,
+            channel_claim=runtime_config.endpoint.claim.channel_claim if runtime_config.endpoint.claim else "unknown",
+            response_headers=observations.response_headers,
+            error_message=observations.messages_error,
+        )
+    )
+    if observations.stream_events:
+        probe_results.append(evaluate_openai_model_streaming_features(observations.stream_events))
+        _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
+
+    rating, breakdown, verdict = score_probe_results(probe_results)
+    return _result(runtime_config, probe_results, rating, breakdown, verdict)
 
 
 def _result(runtime_config, probe_results: list[ProbeResult], rating, breakdown: dict[str, int], verdict) -> AuditResult:

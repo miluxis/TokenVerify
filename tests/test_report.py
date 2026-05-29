@@ -51,7 +51,9 @@ def audit_result() -> AuditResult:
 def test_markdown_contains_required_sections():
     markdown = render_markdown(audit_result())
 
-    assert "# TokenVerify Claude Audit Report" in markdown
+    assert "# TokenVerify Audit Report" in markdown
+    assert "## Plain-Language Summary" in markdown
+    assert "## Channel Risk Profile" in markdown
     assert "## Overall Verdict" in markdown
     assert "## Authenticity Assertions" in markdown
     assert "## Heuristic Risk Profile" in markdown
@@ -152,3 +154,124 @@ def test_markdown_renders_openai_compatible_probe_sections():
     assert "## Reasoning Leakage Probe" in markdown
     assert "## Channel Risk Observations Probe" in markdown
     assert "## OpenAI-Compatible Streaming Metrics" in markdown
+
+
+def test_markdown_renders_openai_probe_sections():
+    result = replace(
+        audit_result(),
+        probe_results=[
+            ProbeResult(
+                "openai_chat_completions_shape",
+                "passed",
+                [EvidenceItem("openai_chat_shape", "strong", True, "shape")],
+            ),
+            ProbeResult(
+                "openai_model_claim_consistency",
+                "passed",
+                [EvidenceItem("openai_model_claim", "strong", True, "model")],
+            ),
+            ProbeResult("openai_reasoning_capability", "skipped", []),
+            ProbeResult(
+                "openai_channel_risk",
+                "passed",
+                [EvidenceItem("openai_official_channel", "strong", True, "official")],
+            ),
+            ProbeResult(
+                "openai_compatible_streaming",
+                "passed",
+                [],
+                metrics=StreamingMetrics(0.2, 1.0, [0.1], [2], 2.0, False),
+            ),
+        ],
+    )
+
+    markdown = render_markdown(result)
+
+    assert "## OpenAI Chat Completions Shape Probe" in markdown
+    assert "## OpenAI Model Claim Consistency Probe" in markdown
+    assert "## OpenAI Reasoning Capability Probe" in markdown
+    assert "## OpenAI Channel Risk Probe" in markdown
+    assert "## OpenAI-Compatible Streaming Metrics" in markdown
+
+
+def test_plain_language_summary_explains_result_before_technical_details():
+    markdown = render_markdown(audit_result())
+
+    assert "本次检测结果：中可信" in markdown
+    assert "发现 2 条强证据支持该接口与声明相符" in markdown
+    assert "发现 1 条渠道或运行风险信号" in markdown
+    assert markdown.index("## Plain-Language Summary") < markdown.index("## Evidence Score Breakdown")
+
+
+def test_channel_risk_profile_explains_official_mismatch_for_users():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "hk.hboom.ai",
+            "model": "gpt-5.5",
+            "endpoint": "openai-official",
+            "claimed_provider": "openai",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_channel": "official",
+        },
+        probe_results=[
+            ProbeResult(
+                "openai_chat_completions_shape",
+                "passed",
+                [EvidenceItem("openai_chat_shape", "strong", True, "shape", tags=["OPENAI_CHAT_COMPLETION_SHAPE_MATCH"])],
+            ),
+            ProbeResult(
+                "openai_channel_risk",
+                "failed",
+                [
+                    EvidenceItem(
+                        "openai_official_channel",
+                        "strong",
+                        False,
+                        "Official OpenAI channel was claimed, but base URL host is not api.openai.com.",
+                        tags=["OPENAI_OFFICIAL_CHANNEL_MISMATCH"],
+                    )
+                ],
+            ),
+        ],
+        rating=Rating.LOW_TRUST,
+        verdict=Verdict(
+            rating=Rating.LOW_TRUST,
+            authenticity_score=39,
+            risk_score=0,
+            tags=["OPENAI_CHAT_COMPLETION_SHAPE_MATCH", "OPENAI_OFFICIAL_CHANNEL_MISMATCH"],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "官方直连：不符合" in markdown
+    assert "中转平台：已确认" in markdown
+    assert "云托管渠道：未发现明确泄漏" in markdown
+    assert "Web 逆向 / 账号池：样本不足，无法判断" in markdown
+
+
+def test_channel_risk_profile_translates_cloud_and_pool_tags_for_users():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "claude-haiku-4-5-20251001",
+            "endpoint": "relay",
+            "claimed_provider": "anthropic",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_channel": "unknown",
+        },
+        verdict=Verdict(
+            rating=Rating.MEDIUM_TRUST,
+            authenticity_score=72,
+            risk_score=45,
+            tags=["HOSTED_BY_AWS", "WEB_REVERSE_SUSPECT"],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "云托管渠道：疑似 AWS/Bedrock" in markdown
+    assert "Web 逆向 / 账号池：存在疑似风险" in markdown
+    assert "HOSTED_BY_AWS" not in markdown.split("## Target Summary", 1)[0]

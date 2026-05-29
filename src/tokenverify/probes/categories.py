@@ -17,6 +17,11 @@ _CATEGORY_BY_PROBE_NAME = {
     "mixed_provider_consistency": ProbeCategory.REPEATABILITY,
     "repeated_run_variance": ProbeCategory.REPEATABILITY,
     "channel_risk_observations": ProbeCategory.CHANNEL_RISK,
+    "openai_chat_completions_shape": ProbeCategory.PROTOCOL,
+    "openai_model_claim_consistency": ProbeCategory.PROTOCOL,
+    "openai_reasoning_capability": ProbeCategory.CAPABILITY,
+    "openai_compatible_streaming": ProbeCategory.STREAM,
+    "openai_channel_risk": ProbeCategory.CHANNEL_RISK,
 }
 
 

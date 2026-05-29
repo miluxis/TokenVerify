@@ -33,3 +33,13 @@ def test_audit_plan_documents_repeat_sampling_without_single_anomaly_claims():
     assert plan.repeat_sampling_min_runs == 5
     assert "single" in plan.single_anomaly_policy
     assert "proof" in plan.single_anomaly_policy
+
+
+def test_audit_plan_routes_openai_compatible_claim():
+    plan = build_audit_plan(Claim(provider="openai", api_shape="openai-compatible", model="gpt-5.1"))
+
+    assert plan.path == "openai_openai_compatible"
+    assert plan.provider == "openai"
+    assert plan.api_shape == "openai-compatible"
+    assert "openai_chat_completions_shape" in plan.probe_names
+    assert "messages_protocol" not in plan.probe_names

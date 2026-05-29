@@ -140,3 +140,68 @@ def test_single_network_timeout_is_inconclusive_without_risk_score_spike():
     assert verdict.rating == Rating.INCONCLUSIVE
     assert verdict.risk_score == 0
     assert "TTFT_VARIANCE_HIGH" not in verdict.tags
+
+
+def test_cross_provider_model_leak_forces_low_trust_even_with_other_positive_evidence():
+    rating, _, verdict = score_probe_results(
+        [
+            ProbeResult(
+                "openai_chat_completions_shape",
+                "passed",
+                [
+                    EvidenceItem(
+                        "openai_chat_shape",
+                        "strong",
+                        True,
+                        "shape",
+                        tags=["OPENAI_CHAT_COMPLETION_SHAPE_MATCH"],
+                    )
+                ],
+            ),
+            ProbeResult(
+                "openai_model_claim_consistency",
+                "failed",
+                [
+                    EvidenceItem(
+                        "openai_model_claim",
+                        "weak",
+                        False,
+                        "cross provider",
+                        tags=["CROSS_PROVIDER_MODEL_LEAKED"],
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert rating == Rating.LOW_TRUST
+    assert verdict.rating == Rating.LOW_TRUST
+    assert verdict.authenticity_score <= 39
+
+
+def test_cross_provider_reasoning_leak_forces_low_trust_even_with_other_positive_evidence():
+    rating, _, verdict = score_probe_results(
+        [
+            ProbeResult(
+                "messages_protocol",
+                "passed",
+                [
+                    EvidenceItem(
+                        "anthropic_messages_shape",
+                        "strong",
+                        True,
+                        "shape",
+                        tags=["ANTHROPIC_NATIVE_SHAPE_MATCH"],
+                    )
+                ],
+            ),
+            ProbeResult(
+                "reasoning_leakage",
+                "failed",
+                [EvidenceItem("reasoning", "weak", False, "leak", tags=["CROSS_PROVIDER_REASONING_LEAKED"])],
+            ),
+        ]
+    )
+
+    assert rating == Rating.LOW_TRUST
+    assert verdict.authenticity_score <= 39

@@ -15,6 +15,10 @@ PROBE_TITLES = {
     "reasoning_leakage": "Reasoning Leakage Probe",
     "channel_risk_observations": "Channel Risk Observations Probe",
     "repeated_run_variance": "Repeated Run Variance Probe",
+    "openai_chat_completions_shape": "OpenAI Chat Completions Shape Probe",
+    "openai_model_claim_consistency": "OpenAI Model Claim Consistency Probe",
+    "openai_reasoning_capability": "OpenAI Reasoning Capability Probe",
+    "openai_channel_risk": "OpenAI Channel Risk Probe",
 }
 NATIVE_PROBE_ORDER = ("messages_protocol", "extended_thinking", "streaming_features")
 OPENAI_COMPATIBLE_PROBE_ORDER = (
@@ -27,14 +31,23 @@ OPENAI_COMPATIBLE_PROBE_ORDER = (
     "repeated_run_variance",
     "openai_compatible_streaming",
 )
+OPENAI_PROBE_ORDER = (
+    "openai_chat_completions_shape",
+    "openai_model_claim_consistency",
+    "openai_reasoning_capability",
+    "openai_channel_risk",
+    "openai_compatible_streaming",
+)
 
 
 def render_markdown(result: AuditResult) -> str:
     lines = [
-        "# TokenVerify Claude Audit Report",
+        "# TokenVerify Audit Report",
         "",
-        "## Target Summary",
     ]
+    lines.extend(_plain_language_summary(result))
+    lines.extend(_channel_risk_profile(result))
+    lines.append("## Target Summary")
     for key, value in result.target_summary.items():
         if value is None:
             continue
@@ -91,9 +104,104 @@ def render_markdown(result: AuditResult) -> str:
     return "\n".join(lines)
 
 
+def _plain_language_summary(result: AuditResult) -> list[str]:
+    breakdown = result.score_breakdown
+    strong_passed = int(breakdown.get("strong_passed", 0))
+    strong_failed = int(breakdown.get("strong_failed", 0))
+    weak_failed = int(breakdown.get("weak_failed", 0))
+    neutral = int(breakdown.get("neutral", 0))
+
+    lines = [
+        "## Plain-Language Summary",
+        "",
+        f"- 本次检测结果：{result.rating.value}",
+        f"- 可信度分数：{_authenticity_score_text(result)}",
+        f"- 渠道风险分数：{_risk_score_text(result)}",
+    ]
+    if strong_passed:
+        lines.append(f"- 发现 {strong_passed} 条强证据支持该接口与声明相符。")
+    if strong_failed:
+        lines.append(f"- 发现 {strong_failed} 条强证据与声明不符，建议优先复核模型或渠道配置。")
+    if weak_failed:
+        lines.append(f"- 发现 {weak_failed} 条渠道或运行风险信号。")
+    if neutral:
+        lines.append(f"- 有 {neutral} 条信息只作为背景记录，不参与真假判断。")
+    if not any((strong_passed, strong_failed, weak_failed, neutral)):
+        lines.append("- 本次没有拿到足够响应证据，因此无法形成明确判断。")
+
+    tags = set(result.verdict.tags if result.verdict else [])
+    if "CROSS_PROVIDER_MODEL_LEAKED" in tags or "CROSS_PROVIDER_REASONING_LEAKED" in tags:
+        lines.append("- 发现跨厂商串货或跨厂商字段泄漏，这是高优先级风险。")
+    elif strong_failed == 0:
+        lines.append("- 未发现跨厂商串货、模型字段明显降级或强结构矛盾。")
+
+    lines.append("- 黑盒检测不能 100% 证明真实上游来源；它用于发现强矛盾、明显降级和渠道风险。")
+    return lines + [""]
+
+
+def _channel_risk_profile(result: AuditResult) -> list[str]:
+    tags = set(result.verdict.tags if result.verdict else [])
+    host = str(result.target_summary.get("base_url_host") or "")
+    provider = str(result.target_summary.get("claimed_provider") or "")
+    api_shape = str(result.target_summary.get("claimed_api_shape") or "")
+    channel_claim = str(result.target_summary.get("claimed_channel") or "")
+
+    official_status = "未声明官方直连"
+    if channel_claim == "official":
+        official_status = "确认" if _is_official_host(provider, host) else "不符合"
+    elif _is_official_host(provider, host):
+        official_status = "看起来符合官方域名"
+
+    relay_status = "未发现明确证据"
+    if "OPENAI_OFFICIAL_CHANNEL_MISMATCH" in tags:
+        relay_status = "已确认"
+    elif "RELAY_HEADER_SUSPECT" in tags or api_shape == "openai-compatible" and not _is_official_host(provider, host):
+        relay_status = "疑似"
+
+    cloud_status = "未发现明确泄漏"
+    cloud_markers = []
+    if "HOSTED_BY_AWS" in tags:
+        cloud_markers.append("AWS/Bedrock")
+    if "HOSTED_BY_AZURE" in tags:
+        cloud_markers.append("Azure")
+    if cloud_markers:
+        cloud_status = "疑似 " + " / ".join(cloud_markers)
+
+    pool_status = "样本不足，无法判断"
+    if {
+        "RATE_LIMIT_RELAY_SUSPECT",
+        "MODEL_DRIFT_SUSPECT",
+        "TTFT_VARIANCE_HIGH",
+        "CONCURRENT_POOL_SUSPECT",
+        "WEB_REVERSE_SUSPECT",
+    } & tags:
+        pool_status = "存在疑似风险"
+
+    return [
+        "## Channel Risk Profile",
+        "",
+        f"- 官方直连：{official_status}",
+        f"- 中转平台：{relay_status}",
+        f"- 云托管渠道：{cloud_status}",
+        f"- Web 逆向 / 账号池：{pool_status}",
+        "- 说明：渠道画像基于域名、响应头、错误信息、模型字段和多次请求一致性；除非服务端直接泄漏上游标识，否则不能当作绝对证明。",
+        "",
+    ]
+
+
+def _is_official_host(provider: str, host: str) -> bool:
+    official_hosts = {
+        "anthropic": "api.anthropic.com",
+        "openai": "api.openai.com",
+    }
+    return official_hosts.get(provider) == host
+
+
 def _probe_sections_for_result(probes: list[ProbeResult]) -> list[str]:
     names = {probe.name for probe in probes}
-    if names.intersection(OPENAI_COMPATIBLE_PROBE_ORDER):
+    if names.intersection(OPENAI_PROBE_ORDER[:4]):
+        ordered_names = OPENAI_PROBE_ORDER
+    elif names.intersection(OPENAI_COMPATIBLE_PROBE_ORDER):
         ordered_names = OPENAI_COMPATIBLE_PROBE_ORDER
     else:
         ordered_names = NATIVE_PROBE_ORDER

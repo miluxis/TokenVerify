@@ -47,7 +47,8 @@ extension_probes:
     markdown = render_markdown(result)
 
     assert result.rating == Rating.HIGH_TRUST
-    assert "TokenVerify Claude Audit Report" in markdown
+    assert "TokenVerify Audit Report" in markdown
+    assert "Plain-Language Summary" in markdown
     assert "ENV_TOKEN_PLACEHOLDER" not in markdown
     assert result.extension_probe_results[0].name == "appendix-only"
 
@@ -256,3 +257,113 @@ endpoints:
     assert result.rating == Rating.INCONCLUSIVE
     assert result.probe_results[0].name == "unsupported_audit_target"
     assert "out of scope" in result.probe_results[0].errors[0]
+
+
+def test_openai_compatible_claim_uses_openai_probe_path(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: openai
+endpoints:
+  - name: openai
+    base_url: https://api.openai.com/v1
+    provider: openai
+    api_shape: openai-compatible
+    model: gpt-5.1
+    channel_claim: official
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={
+            "object": "chat.completion",
+            "model": "gpt-5.1",
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        },
+        response_headers={"x-request-id": "req_123"},
+        stream_events=[
+            ProviderEvent(
+                0.0,
+                "chat.completion.chunk",
+                text_length=2,
+                data={"object": "chat.completion.chunk", "finish_reason": "stop"},
+            )
+        ],
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    assert result.target_summary["claimed_provider"] == "openai"
+    probe_names = [probe.name for probe in result.probe_results]
+    assert "openai_chat_completions_shape" in probe_names
+    assert "openai_model_claim_consistency" in probe_names
+    assert "openai_channel_risk" in probe_names
+    assert "OPENAI_OFFICIAL_CHANNEL_MATCH" in result.verdict.tags
+
+
+def test_openai_compatible_reasoning_probe_skips_without_parameter_observations(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: openai
+endpoints:
+  - name: openai
+    base_url: https://api.openai.com/v1
+    provider: openai
+    api_shape: openai-compatible
+    model: gpt-5.1
+    channel_claim: official
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={
+            "object": "chat.completion",
+            "model": "gpt-5.1",
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        },
+        response_headers={"x-request-id": "req_123"},
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    reasoning_probe = next(probe for probe in result.probe_results if probe.name == "openai_reasoning_capability")
+    assert reasoning_probe.status == "skipped"
+    assert "OPENAI_REASONING_CAPABILITY_MISMATCH" not in result.verdict.tags
+
+
+def test_cross_provider_model_leak_forces_low_trust(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: openai
+endpoints:
+  - name: openai
+    base_url: https://api.openai.com/v1
+    provider: openai
+    api_shape: openai-compatible
+    model: gpt-5.1
+    channel_claim: official
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+    observations = AuditObservations(
+        messages_response={
+            "object": "chat.completion",
+            "model": "anthropic/claude-3-5-sonnet",
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        },
+        response_headers={"x-request-id": "req_123"},
+    )
+
+    result = run_audit(runtime_config, observations=observations)
+
+    assert result.rating == Rating.LOW_TRUST
+    assert result.verdict.authenticity_score <= 39
+    assert "CROSS_PROVIDER_MODEL_LEAKED" in result.verdict.tags

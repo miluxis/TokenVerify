@@ -33,7 +33,9 @@ def score_probe_results(probe_results: list[ProbeResult]) -> tuple[Rating, dict[
             else:
                 breakdown["neutral"] += 1
 
-    if breakdown["strong_failed"] > 0:
+    if _has_hard_fail_tag(probe_results):
+        rating = Rating.LOW_TRUST
+    elif breakdown["strong_failed"] > 0:
         rating = Rating.LOW_TRUST
     elif breakdown["strong_passed"] >= 2:
         rating = Rating.HIGH_TRUST
@@ -99,6 +101,16 @@ def _risk_score(probe_results: list[ProbeResult]) -> int:
             if item.weight == "weak" and item.passed is False:
                 weak_failures += 1
     return min(weak_failures * 25, 100)
+
+
+def _has_hard_fail_tag(probe_results: list[ProbeResult]) -> bool:
+    hard_fail_tags = {"CROSS_PROVIDER_MODEL_LEAKED", "CROSS_PROVIDER_REASONING_LEAKED"}
+    return any(
+        tag in hard_fail_tags
+        for result in probe_results
+        for item in result.evidence
+        for tag in item.tags
+    )
 
 
 def _collect_tags(probe_results: list[ProbeResult]) -> list[str]:

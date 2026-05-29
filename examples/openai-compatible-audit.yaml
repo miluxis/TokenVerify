@@ -1,0 +1,13 @@
+selected_endpoint: openai-official
+output: reports/openai-compatible-audit.md
+raw_logs:
+  enabled: false
+  path: null
+endpoints:
+  - name: openai-official
+    base_url: https://api.openai.com/v1
+    provider: openai
+    api_shape: openai-compatible
+    model: gpt-5.1
+    channel_claim: official
+    api_key_env: OPENAI_API_KEY

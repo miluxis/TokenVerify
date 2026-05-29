@@ -17,3 +17,10 @@ def test_probe_names_map_to_stable_categories():
 
 def test_unknown_probe_category_is_none_not_failure():
     assert categorize_probe("extension_probe") is None
+
+
+def test_openai_probe_names_map_to_categories():
+    assert categorize_probe("openai_chat_completions_shape") == ProbeCategory.PROTOCOL
+    assert categorize_probe("openai_reasoning_capability") == ProbeCategory.CAPABILITY
+    assert categorize_probe("openai_compatible_streaming") == ProbeCategory.STREAM
+    assert categorize_probe("openai_channel_risk") == ProbeCategory.CHANNEL_RISK

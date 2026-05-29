@@ -103,6 +103,14 @@ endpoints:
     assert config.endpoint.claim.api_shape == "openai-compatible"
 
 
+def test_openai_compatible_example_config_loads():
+    config = load_runtime_config(Path("examples/openai-compatible-audit.yaml"))
+
+    assert config.endpoint.claim.provider == "openai"
+    assert config.endpoint.claim.api_shape == "openai-compatible"
+    assert config.endpoint.claim.channel_claim == "official"
+
+
 def test_cli_overrides_yaml_fields(tmp_path):
     path = write_config(
         tmp_path,

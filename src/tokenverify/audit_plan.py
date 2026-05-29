@@ -38,6 +38,14 @@ _ANTHROPIC_OPENAI_COMPATIBLE_PROBES = (
     "openai_compatible_streaming",
 )
 
+_OPENAI_COMPATIBLE_PROBES = (
+    "openai_chat_completions_shape",
+    "openai_model_claim_consistency",
+    "openai_reasoning_capability",
+    "openai_channel_risk",
+    "openai_compatible_streaming",
+)
+
 
 def build_audit_plan(claim: Claim) -> AuditPlan:
     provider = claim.provider.lower()
@@ -55,6 +63,13 @@ def build_audit_plan(claim: Claim) -> AuditPlan:
             provider=provider,
             api_shape=api_shape,
             probe_names=_ANTHROPIC_OPENAI_COMPATIBLE_PROBES,
+        )
+    if provider == "openai" and api_shape == "openai-compatible":
+        return AuditPlan(
+            path="openai_openai_compatible",
+            provider=provider,
+            api_shape=api_shape,
+            probe_names=_OPENAI_COMPATIBLE_PROBES,
         )
     raise UnsupportedAuditTarget(
         f"Audit target provider={claim.provider!r}, api_shape={claim.api_shape!r} is out of scope."

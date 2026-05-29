@@ -67,3 +67,18 @@ def test_probe_category_values_are_stable():
     assert ProbeCategory.ERROR.value == "error"
     assert ProbeCategory.REPEATABILITY.value == "repeatability"
     assert ProbeCategory.CHANNEL_RISK.value == "channel_risk"
+
+
+def test_openai_audit_tag_values_are_stable():
+    assert EvidenceTag.OPENAI_CHAT_COMPLETION_SHAPE_MATCH.value == "OPENAI_CHAT_COMPLETION_SHAPE_MATCH"
+    assert EvidenceTag.OPENAI_CHAT_COMPLETION_SHAPE_MISMATCH.value == "OPENAI_CHAT_COMPLETION_SHAPE_MISMATCH"
+    assert EvidenceTag.NON_OPENAI_PROVIDER_SHAPE_DETECTED.value == "NON_OPENAI_PROVIDER_SHAPE_DETECTED"
+    assert EvidenceTag.OPENAI_MODEL_CLAIM_MATCH.value == "OPENAI_MODEL_CLAIM_MATCH"
+    assert EvidenceTag.OPENAI_MODEL_CLAIM_MISMATCH.value == "OPENAI_MODEL_CLAIM_MISMATCH"
+    assert EvidenceTag.CROSS_PROVIDER_MODEL_LEAKED.value == "CROSS_PROVIDER_MODEL_LEAKED"
+    assert EvidenceTag.OPENAI_STREAM_SEQUENCE_MATCH.value == "OPENAI_STREAM_SEQUENCE_MATCH"
+    assert EvidenceTag.OPENAI_STREAM_SEQUENCE_MISMATCH.value == "OPENAI_STREAM_SEQUENCE_MISMATCH"
+    assert EvidenceTag.OPENAI_REASONING_CAPABILITY_MATCH.value == "OPENAI_REASONING_CAPABILITY_MATCH"
+    assert EvidenceTag.OPENAI_REASONING_CAPABILITY_MISMATCH.value == "OPENAI_REASONING_CAPABILITY_MISMATCH"
+    assert EvidenceTag.OPENAI_OFFICIAL_CHANNEL_MATCH.value == "OPENAI_OFFICIAL_CHANNEL_MATCH"
+    assert EvidenceTag.OPENAI_OFFICIAL_CHANNEL_MISMATCH.value == "OPENAI_OFFICIAL_CHANNEL_MISMATCH"
