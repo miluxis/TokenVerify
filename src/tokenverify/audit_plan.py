@@ -46,6 +46,14 @@ _OPENAI_COMPATIBLE_PROBES = (
     "openai_compatible_streaming",
 )
 
+_DEEPSEEK_COMPATIBLE_PROBES = (
+    "deepseek_chat_completions_shape",
+    "deepseek_model_claim_consistency",
+    "deepseek_reasoning_content",
+    "deepseek_channel_risk",
+    "deepseek_compatible_streaming",
+)
+
 
 def build_audit_plan(claim: Claim) -> AuditPlan:
     provider = claim.provider.lower()
@@ -70,6 +78,13 @@ def build_audit_plan(claim: Claim) -> AuditPlan:
             provider=provider,
             api_shape=api_shape,
             probe_names=_OPENAI_COMPATIBLE_PROBES,
+        )
+    if provider == "deepseek" and api_shape == "openai-compatible":
+        return AuditPlan(
+            path="deepseek_openai_compatible",
+            provider=provider,
+            api_shape=api_shape,
+            probe_names=_DEEPSEEK_COMPATIBLE_PROBES,
         )
     raise UnsupportedAuditTarget(
         f"Audit target provider={claim.provider!r}, api_shape={claim.api_shape!r} is out of scope."

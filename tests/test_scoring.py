@@ -205,3 +205,39 @@ def test_cross_provider_reasoning_leak_forces_low_trust_even_with_other_positive
 
     assert rating == Rating.LOW_TRUST
     assert verdict.authenticity_score <= 39
+
+
+def test_deepseek_reasoning_content_missing_forces_low_trust_even_with_other_positive_evidence():
+    rating, _, verdict = score_probe_results(
+        [
+            ProbeResult(
+                "deepseek_chat_completions_shape",
+                "passed",
+                [
+                    EvidenceItem(
+                        "deepseek_chat_shape",
+                        "strong",
+                        True,
+                        "shape",
+                        tags=["DEEPSEEK_CHAT_COMPLETION_SHAPE_MATCH"],
+                    )
+                ],
+            ),
+            ProbeResult(
+                "deepseek_reasoning_content",
+                "failed",
+                [
+                    EvidenceItem(
+                        "deepseek_reasoning_content",
+                        "strong",
+                        False,
+                        "missing",
+                        tags=["DEEPSEEK_REASONING_CONTENT_MISSING"],
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert rating == Rating.LOW_TRUST
+    assert verdict.authenticity_score <= 39

@@ -16,3 +16,7 @@ venv/
 reports/
 *.jsonl
 docs/
+!docs/
+!docs/*.md
+!examples/reports/
+!examples/reports/*.md

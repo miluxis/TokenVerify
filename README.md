@@ -24,8 +24,6 @@ Implemented in this repository:
 
 Out of scope for this MVP:
 
-- OpenAI official model authenticity auditing.
-- DeepSeek provider auditing.
 - Gemini, Seed, Qwen, Doubao, or other non-Claude provider auditing.
 - Streamlit or Web UI.
 - Batch endpoint execution.
@@ -120,6 +118,16 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --output reports/claude-openai-compatible-audit.md
 ```
 
+Run repeat sampling for compatible relay paths:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/claude-openai-compatible-audit.yaml \
+  --endpoint claude-openai-compatible \
+  --repeat 3 \
+  --output reports/claude-openai-compatible-audit.md
+```
+
 Useful overrides:
 
 ```bash
@@ -142,6 +150,17 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 ```
 
 API keys are redacted from reports and raw logs.
+
+## CLI Exit Codes
+
+`tokenverify audit` writes the Markdown report before returning an audit-result exit code:
+
+- `0`: audit completed with high or medium trust.
+- `1`: audit completed with low trust.
+- `2`: configuration or CLI argument error.
+- `3`: audit completed but the runtime result is inconclusive.
+
+No-key or offline paths do not send a real provider request. They produce an `无法判定` report and return exit code `3`; check the report for API key, network, quota, or unsupported-target details.
 
 ## Report Ratings
 
@@ -174,6 +193,19 @@ PYTHONPATH=src python3 -m pytest -v
 ```
 
 Real-network tests are marked `real_network` and skipped by default.
+
+Real-network tests are opt-in. Run them only when you intentionally want to hit configured external endpoints:
+
+```bash
+PYTHONPATH=src python3 -m pytest -v -m real_network
+```
+
+Provider and probe regression policy:
+
+- Every new provider or probe module must add regression tests.
+- Provider HTTP behavior must use httpx.MockTransport.
+- Probe behavior should use direct probe inputs or mock observations.
+- Default tests must pass without live network access.
 
 Check CLI help:
 

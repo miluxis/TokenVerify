@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from tokenverify.models import AuditResult, ProbeResult, RiskTag, StreamingMetrics
+from tokenverify.upstream_signals import find_suspected_upstream_signals
 
 
 PROBE_TITLES = {
@@ -19,6 +20,10 @@ PROBE_TITLES = {
     "openai_model_claim_consistency": "OpenAI Model Claim Consistency Probe",
     "openai_reasoning_capability": "OpenAI Reasoning Capability Probe",
     "openai_channel_risk": "OpenAI Channel Risk Probe",
+    "deepseek_chat_completions_shape": "DeepSeek Chat Completions Shape Probe",
+    "deepseek_model_claim_consistency": "DeepSeek Model Claim Consistency Probe",
+    "deepseek_reasoning_content": "DeepSeek R1 Reasoning Content Probe",
+    "deepseek_channel_risk": "DeepSeek Channel Risk Probe",
 }
 NATIVE_PROBE_ORDER = ("messages_protocol", "extended_thinking", "streaming_features")
 OPENAI_COMPATIBLE_PROBE_ORDER = (
@@ -38,6 +43,13 @@ OPENAI_PROBE_ORDER = (
     "openai_channel_risk",
     "openai_compatible_streaming",
 )
+DEEPSEEK_PROBE_ORDER = (
+    "deepseek_chat_completions_shape",
+    "deepseek_model_claim_consistency",
+    "deepseek_reasoning_content",
+    "deepseek_channel_risk",
+    "deepseek_compatible_streaming",
+)
 
 
 def render_markdown(result: AuditResult) -> str:
@@ -47,6 +59,7 @@ def render_markdown(result: AuditResult) -> str:
     ]
     lines.extend(_plain_language_summary(result))
     lines.extend(_channel_risk_profile(result))
+    lines.extend(_suspected_upstream_signals_section(result))
     lines.append("## Target Summary")
     for key, value in result.target_summary.items():
         if value is None:
@@ -132,6 +145,8 @@ def _plain_language_summary(result: AuditResult) -> list[str]:
     tags = set(result.verdict.tags if result.verdict else [])
     if "CROSS_PROVIDER_MODEL_LEAKED" in tags or "CROSS_PROVIDER_REASONING_LEAKED" in tags:
         lines.append("- 发现跨厂商串货或跨厂商字段泄漏，这是高优先级风险。")
+    if "DEEPSEEK_REASONING_CONTENT_MISSING" in tags:
+        lines.append("- 推理能力缺失：声明为 DeepSeek R1，但未检测到原生 reasoning_content 字段，疑似被路由到不支持 R1 推理能力的模型或兼容层。")
     elif strong_failed == 0:
         lines.append("- 未发现跨厂商串货、模型字段明显降级或强结构矛盾。")
 
@@ -153,7 +168,7 @@ def _channel_risk_profile(result: AuditResult) -> list[str]:
         official_status = "看起来符合官方域名"
 
     relay_status = "未发现明确证据"
-    if "OPENAI_OFFICIAL_CHANNEL_MISMATCH" in tags:
+    if "OPENAI_OFFICIAL_CHANNEL_MISMATCH" in tags or "DEEPSEEK_OFFICIAL_CHANNEL_MISMATCH" in tags:
         relay_status = "已确认"
     elif "RELAY_HEADER_SUSPECT" in tags or api_shape == "openai-compatible" and not _is_official_host(provider, host):
         relay_status = "疑似"
@@ -176,6 +191,10 @@ def _channel_risk_profile(result: AuditResult) -> list[str]:
         "WEB_REVERSE_SUSPECT",
     } & tags:
         pool_status = "存在疑似风险"
+    else:
+        repeated_run_probe = _find_probe(result.probe_results, "repeated_run_variance")
+        if repeated_run_probe and repeated_run_probe.status == "passed":
+            pool_status = "已采样，未发现疑似风险"
 
     return [
         "## Channel Risk Profile",
@@ -193,13 +212,31 @@ def _is_official_host(provider: str, host: str) -> bool:
     official_hosts = {
         "anthropic": "api.anthropic.com",
         "openai": "api.openai.com",
+        "deepseek": "api.deepseek.com",
     }
     return official_hosts.get(provider) == host
 
 
+def _suspected_upstream_signals_section(result: AuditResult) -> list[str]:
+    lines = [
+        "## Suspected Upstream Signals / 疑似上游特征",
+        "",
+        "- 说明：这些线索只解释响应里出现的厂商风格或兼容层特征，不能证明真实官方上游，且不改变可信度评分。",
+    ]
+    signals = find_suspected_upstream_signals(result)
+    if not signals:
+        return lines + ["- 未发现明显跨厂商上游风格线索。", ""]
+    for signal in signals:
+        evidence = ", ".join(signal.evidence) if signal.evidence else "observed response metadata"
+        lines.append(f"- {signal.style}：{signal.auxiliary_label}。观察依据：{evidence}。")
+    return lines + [""]
+
+
 def _probe_sections_for_result(probes: list[ProbeResult]) -> list[str]:
     names = {probe.name for probe in probes}
-    if names.intersection(OPENAI_PROBE_ORDER[:4]):
+    if names.intersection(DEEPSEEK_PROBE_ORDER[:4]):
+        ordered_names = DEEPSEEK_PROBE_ORDER
+    elif names.intersection(OPENAI_PROBE_ORDER[:4]):
         ordered_names = OPENAI_PROBE_ORDER
     elif names.intersection(OPENAI_COMPATIBLE_PROBE_ORDER):
         ordered_names = OPENAI_COMPATIBLE_PROBE_ORDER
@@ -213,6 +250,8 @@ def _probe_sections_for_result(probes: list[ProbeResult]) -> list[str]:
             lines.extend(_streaming_section("Streaming Metrics", probe))
         elif name == "openai_compatible_streaming":
             lines.extend(_streaming_section("OpenAI-Compatible Streaming Metrics", probe))
+        elif name == "deepseek_compatible_streaming":
+            lines.extend(_streaming_section("DeepSeek-Compatible Streaming Metrics", probe))
         else:
             lines.extend(_probe_section(PROBE_TITLES[name], probe))
     return lines

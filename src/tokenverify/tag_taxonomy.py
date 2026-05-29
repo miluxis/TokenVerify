@@ -20,6 +20,7 @@ def tag_taxonomy() -> dict[TagTaxonomyCategory, tuple[str, ...]]:
     )
     evidence_risk = (
         EvidenceTag.OPENAI_OFFICIAL_CHANNEL_MISMATCH.value,
+        EvidenceTag.DEEPSEEK_OFFICIAL_CHANNEL_MISMATCH.value,
     )
     operational = (
         RiskTag.SELF_RELAY_LOOP_DETECTED.value,

@@ -33,3 +33,9 @@ def test_openai_tags_are_classified_for_dashboard_taxonomy():
     assert classify_tag(EvidenceTag.OPENAI_CHAT_COMPLETION_SHAPE_MATCH.value) == TagTaxonomyCategory.AUTHENTICITY
     assert classify_tag(EvidenceTag.OPENAI_OFFICIAL_CHANNEL_MISMATCH.value) == TagTaxonomyCategory.RISK
     assert classify_tag(EvidenceTag.CROSS_PROVIDER_MODEL_LEAKED.value) == TagTaxonomyCategory.CROSS_PROVIDER_LEAKAGE
+
+
+def test_deepseek_tags_are_classified_for_dashboard_taxonomy():
+    assert classify_tag(EvidenceTag.DEEPSEEK_CHAT_COMPLETION_SHAPE_MATCH.value) == TagTaxonomyCategory.AUTHENTICITY
+    assert classify_tag(EvidenceTag.DEEPSEEK_REASONING_CONTENT_MISSING.value) == TagTaxonomyCategory.AUTHENTICITY
+    assert classify_tag(EvidenceTag.DEEPSEEK_OFFICIAL_CHANNEL_MISMATCH.value) == TagTaxonomyCategory.RISK

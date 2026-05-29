@@ -22,6 +22,11 @@ _CATEGORY_BY_PROBE_NAME = {
     "openai_reasoning_capability": ProbeCategory.CAPABILITY,
     "openai_compatible_streaming": ProbeCategory.STREAM,
     "openai_channel_risk": ProbeCategory.CHANNEL_RISK,
+    "deepseek_chat_completions_shape": ProbeCategory.PROTOCOL,
+    "deepseek_model_claim_consistency": ProbeCategory.PROTOCOL,
+    "deepseek_reasoning_content": ProbeCategory.CAPABILITY,
+    "deepseek_compatible_streaming": ProbeCategory.STREAM,
+    "deepseek_channel_risk": ProbeCategory.CHANNEL_RISK,
 }
 
 

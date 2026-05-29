@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +14,13 @@ from tokenverify.providers.openai_compatible import (
     build_chat_completions_payload,
 )
 from tokenverify.probes.messages import evaluate_messages_response
+from tokenverify.probes.deepseek import (
+    evaluate_deepseek_channel,
+    evaluate_deepseek_chat_completion_response,
+    evaluate_deepseek_model_claim,
+    evaluate_deepseek_reasoning_content,
+    evaluate_deepseek_streaming_features,
+)
 from tokenverify.probes.openai import (
     evaluate_openai_channel,
     evaluate_openai_chat_completion_response,
@@ -51,7 +59,7 @@ class AuditObservations:
     is_trivial_prompt: bool = False
 
 
-def run_audit(runtime_config, observations: AuditObservations | None = None) -> AuditResult:
+def run_audit(runtime_config, observations: AuditObservations | None = None, repeat_count: int = 1) -> AuditResult:
     claim = runtime_config.endpoint.claim
     if claim:
         try:
@@ -61,9 +69,11 @@ def run_audit(runtime_config, observations: AuditObservations | None = None) -> 
             rating, breakdown, verdict = score_probe_results(probe_results)
             return _result(runtime_config, probe_results, rating, breakdown, verdict)
         if plan.path == "anthropic_openai_compatible":
-            return _run_openai_compatible_claude_audit(runtime_config, observations)
+            return _run_openai_compatible_claude_audit(runtime_config, observations, repeat_count=repeat_count)
         if plan.path == "openai_openai_compatible":
-            return _run_openai_compatible_audit(runtime_config, observations)
+            return _run_openai_compatible_audit(runtime_config, observations, repeat_count=repeat_count)
+        if plan.path == "deepseek_openai_compatible":
+            return _run_deepseek_compatible_audit(runtime_config, observations, repeat_count=repeat_count)
 
     observations = observations or _collect_live_observations(runtime_config)
     probe_results: list[ProbeResult] = []
@@ -131,8 +141,12 @@ def _collect_live_observations(runtime_config) -> AuditObservations:
     )
 
 
-def _run_openai_compatible_claude_audit(runtime_config, observations: AuditObservations | None) -> AuditResult:
-    observations = observations or _collect_openai_compatible_observations(runtime_config)
+def _run_openai_compatible_claude_audit(
+    runtime_config,
+    observations: AuditObservations | None,
+    repeat_count: int = 1,
+) -> AuditResult:
+    observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
     probe_results: list[ProbeResult] = []
 
     if observations.messages_error and "self-relay-loop" in observations.messages_error.lower():
@@ -204,7 +218,7 @@ def _run_openai_compatible_claude_audit(runtime_config, observations: AuditObser
     return _result(runtime_config, probe_results, rating, breakdown, verdict)
 
 
-def _collect_openai_compatible_observations(runtime_config) -> AuditObservations:
+def _collect_openai_compatible_observations(runtime_config, repeat_count: int = 1) -> AuditObservations:
     if not runtime_config.endpoint.api_key:
         return AuditObservations(messages_error="API key is required for live audit.")
 
@@ -219,15 +233,27 @@ def _collect_openai_compatible_observations(runtime_config) -> AuditObservations
         max_tokens=64,
         stream=False,
     )
-    messages_response = None
-    messages_error = None
+    repeat_count = max(1, min(10, int(repeat_count)))
+    responses: list[dict] = []
+    errors: list[str] = []
+    self_relay_error = None
+    latency_samples: list[float] = []
     stream_events: list[ProviderEvent] = []
-    try:
-        messages_response = client.create_chat_completion(payload)
-    except SelfRelayLoopError as exc:
-        messages_error = f"self-relay-loop: {exc}"
-    except Exception as exc:  # Provider errors are normalized into inconclusive/negative evidence downstream.
-        messages_error = str(exc)
+    for _ in range(repeat_count):
+        started_at = time.monotonic()
+        try:
+            responses.append(client.create_chat_completion(payload))
+        except SelfRelayLoopError as exc:
+            self_relay_error = f"self-relay-loop: {exc}"
+            break
+        except Exception as exc:  # Provider errors are normalized into inconclusive/negative evidence downstream.
+            errors.append(str(exc))
+        finally:
+            latency_samples.append(round(time.monotonic() - started_at, 3))
+
+    messages_response = responses[0] if responses else None
+    repeated_messages_responses = responses[1:]
+    messages_error = self_relay_error or ("\n".join(errors) if errors else None)
 
     try:
         stream_payload = {**payload, "stream": True}
@@ -241,11 +267,17 @@ def _collect_openai_compatible_observations(runtime_config) -> AuditObservations
         messages_response=messages_response,
         messages_error=messages_error,
         stream_events=stream_events,
+        repeated_messages_responses=repeated_messages_responses,
+        latency_samples=latency_samples,
     )
 
 
-def _run_openai_compatible_audit(runtime_config, observations: AuditObservations | None) -> AuditResult:
-    observations = observations or _collect_openai_compatible_observations(runtime_config)
+def _run_openai_compatible_audit(
+    runtime_config,
+    observations: AuditObservations | None,
+    repeat_count: int = 1,
+) -> AuditResult:
+    observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
     probe_results: list[ProbeResult] = []
 
     if observations.messages_response is not None:
@@ -286,8 +318,70 @@ def _run_openai_compatible_audit(runtime_config, observations: AuditObservations
             error_message=observations.messages_error,
         )
     )
+    if observations.repeated_messages_responses or observations.latency_samples:
+        observed_models = [
+            str(response.get("model"))
+            for response in ([observations.messages_response] if observations.messages_response else [])
+            + observations.repeated_messages_responses
+            if response.get("model")
+        ]
+        probe_results.append(
+            evaluate_repeated_run_variance(
+                latency_samples=observations.latency_samples,
+                observed_models=observed_models,
+            )
+        )
     if observations.stream_events:
         probe_results.append(evaluate_openai_model_streaming_features(observations.stream_events))
+        _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
+
+    rating, breakdown, verdict = score_probe_results(probe_results)
+    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+
+
+def _run_deepseek_compatible_audit(
+    runtime_config,
+    observations: AuditObservations | None,
+    repeat_count: int = 1,
+) -> AuditResult:
+    observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
+    probe_results: list[ProbeResult] = []
+
+    if observations.messages_response is not None:
+        probe_results.append(evaluate_deepseek_chat_completion_response(observations.messages_response))
+        probe_results.append(evaluate_deepseek_model_claim(runtime_config.endpoint.model, observations.messages_response))
+        probe_results.append(
+            evaluate_deepseek_reasoning_content(
+                runtime_config.endpoint.model,
+                observations.messages_response,
+                is_trivial_prompt=False,
+            )
+        )
+    if observations.messages_error is not None:
+        probe_results.append(ProbeResult("deepseek_chat_completions_shape", "error", errors=[observations.messages_error]))
+    probe_results.append(
+        evaluate_deepseek_channel(
+            base_url=runtime_config.endpoint.base_url,
+            channel_claim=runtime_config.endpoint.claim.channel_claim if runtime_config.endpoint.claim else "unknown",
+            response_headers=observations.response_headers,
+            error_message=observations.messages_error,
+        )
+    )
+    if observations.repeated_messages_responses or observations.latency_samples:
+        observed_models = [
+            str(response.get("model"))
+            for response in ([observations.messages_response] if observations.messages_response else [])
+            + observations.repeated_messages_responses
+            if response.get("model")
+        ]
+        probe_results.append(
+            evaluate_repeated_run_variance(
+                latency_samples=observations.latency_samples,
+                observed_models=observed_models,
+            )
+        )
+    if observations.stream_events:
+        probe_results.append(evaluate_deepseek_streaming_features(runtime_config.endpoint.model, observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)

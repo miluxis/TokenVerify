@@ -1,0 +1,13 @@
+selected_endpoint: deepseek-official
+output: reports/deepseek-compatible-audit.md
+raw_logs:
+  enabled: false
+  path: null
+endpoints:
+  - name: deepseek-official
+    base_url: https://api.deepseek.com/v1
+    provider: deepseek
+    api_shape: openai-compatible
+    model: deepseek-r1
+    channel_claim: official
+    api_key_env: DEEPSEEK_API_KEY

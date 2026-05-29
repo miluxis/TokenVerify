@@ -104,7 +104,11 @@ def _risk_score(probe_results: list[ProbeResult]) -> int:
 
 
 def _has_hard_fail_tag(probe_results: list[ProbeResult]) -> bool:
-    hard_fail_tags = {"CROSS_PROVIDER_MODEL_LEAKED", "CROSS_PROVIDER_REASONING_LEAKED"}
+    hard_fail_tags = {
+        "CROSS_PROVIDER_MODEL_LEAKED",
+        "CROSS_PROVIDER_REASONING_LEAKED",
+        "DEEPSEEK_REASONING_CONTENT_MISSING",
+    }
     return any(
         tag in hard_fail_tags
         for result in probe_results

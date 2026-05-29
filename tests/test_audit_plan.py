@@ -24,7 +24,7 @@ def test_audit_plan_routes_openai_compatible_claude_by_composite_claim():
 
 def test_audit_plan_rejects_unknown_provider_as_out_of_scope():
     with pytest.raises(UnsupportedAuditTarget, match="out of scope"):
-        build_audit_plan(Claim(provider="deepseek", api_shape="openai-compatible", model="deepseek-r1"))
+        build_audit_plan(Claim(provider="gemini", api_shape="openai-compatible", model="gemini-2.5-pro"))
 
 
 def test_audit_plan_documents_repeat_sampling_without_single_anomaly_claims():
@@ -43,3 +43,16 @@ def test_audit_plan_routes_openai_compatible_claim():
     assert plan.api_shape == "openai-compatible"
     assert "openai_chat_completions_shape" in plan.probe_names
     assert "messages_protocol" not in plan.probe_names
+
+
+def test_audit_plan_routes_deepseek_compatible_claim():
+    plan = build_audit_plan(Claim(provider="deepseek", api_shape="openai-compatible", model="deepseek-r1"))
+
+    assert plan.path == "deepseek_openai_compatible"
+    assert plan.probe_names == (
+        "deepseek_chat_completions_shape",
+        "deepseek_model_claim_consistency",
+        "deepseek_reasoning_content",
+        "deepseek_channel_risk",
+        "deepseek_compatible_streaming",
+    )

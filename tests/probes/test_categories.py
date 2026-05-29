@@ -24,3 +24,11 @@ def test_openai_probe_names_map_to_categories():
     assert categorize_probe("openai_reasoning_capability") == ProbeCategory.CAPABILITY
     assert categorize_probe("openai_compatible_streaming") == ProbeCategory.STREAM
     assert categorize_probe("openai_channel_risk") == ProbeCategory.CHANNEL_RISK
+
+
+def test_deepseek_probe_names_map_to_categories():
+    assert categorize_probe("deepseek_chat_completions_shape") == ProbeCategory.PROTOCOL
+    assert categorize_probe("deepseek_model_claim_consistency") == ProbeCategory.PROTOCOL
+    assert categorize_probe("deepseek_reasoning_content") == ProbeCategory.CAPABILITY
+    assert categorize_probe("deepseek_compatible_streaming") == ProbeCategory.STREAM
+    assert categorize_probe("deepseek_channel_risk") == ProbeCategory.CHANNEL_RISK

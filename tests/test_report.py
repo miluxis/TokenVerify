@@ -1,7 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 
-from tokenverify.models import AuditResult, EvidenceItem, ProbeResult, Rating, StreamingMetrics, Verdict
+from tokenverify.models import AuditResult, Claim, EvidenceItem, ProbeResult, Rating, StreamingMetrics, Verdict
 from tokenverify.report import render_markdown
 
 
@@ -194,6 +194,97 @@ def test_markdown_renders_openai_probe_sections():
     assert "## OpenAI-Compatible Streaming Metrics" in markdown
 
 
+def test_markdown_renders_deepseek_probe_sections():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "api.deepseek.com",
+            "model": "deepseek-r1",
+            "endpoint": "deepseek",
+            "claimed_provider": "deepseek",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_channel": "official",
+        },
+        probe_results=[
+            ProbeResult(
+                "deepseek_chat_completions_shape",
+                "passed",
+                [EvidenceItem("deepseek_chat_shape", "strong", True, "shape")],
+            ),
+            ProbeResult(
+                "deepseek_model_claim_consistency",
+                "passed",
+                [EvidenceItem("deepseek_model_claim", "strong", True, "model")],
+            ),
+            ProbeResult(
+                "deepseek_reasoning_content",
+                "passed",
+                [EvidenceItem("deepseek_reasoning_content", "strong", True, "reasoning")],
+            ),
+            ProbeResult(
+                "deepseek_channel_risk",
+                "passed",
+                [EvidenceItem("deepseek_official_channel", "strong", True, "official")],
+            ),
+            ProbeResult(
+                "deepseek_compatible_streaming",
+                "passed",
+                [],
+                metrics=StreamingMetrics(0.2, 1.0, [0.1], [2], 2.0, False),
+            ),
+        ],
+    )
+
+    markdown = render_markdown(result)
+
+    assert "## DeepSeek Chat Completions Shape Probe" in markdown
+    assert "## DeepSeek Model Claim Consistency Probe" in markdown
+    assert "## DeepSeek R1 Reasoning Content Probe" in markdown
+    assert "## DeepSeek Channel Risk Probe" in markdown
+    assert "## DeepSeek-Compatible Streaming Metrics" in markdown
+
+
+def test_plain_language_summary_translates_deepseek_missing_reasoning_objectively():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "api.deepseek.com",
+            "model": "deepseek-r1",
+            "endpoint": "deepseek",
+            "claimed_provider": "deepseek",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_channel": "official",
+        },
+        probe_results=[
+            ProbeResult(
+                "deepseek_reasoning_content",
+                "failed",
+                [
+                    EvidenceItem(
+                        "deepseek_reasoning_content",
+                        "strong",
+                        False,
+                        "missing",
+                        tags=["DEEPSEEK_REASONING_CONTENT_MISSING"],
+                    )
+                ],
+            )
+        ],
+        verdict=Verdict(
+            rating=Rating.LOW_TRUST,
+            authenticity_score=39,
+            risk_score=0,
+            tags=["DEEPSEEK_REASONING_CONTENT_MISSING"],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "推理能力缺失：声明为 DeepSeek R1，但未检测到原生 reasoning_content 字段，疑似被路由到不支持 R1 推理能力的模型或兼容层。" in markdown
+    assert "阉割" not in markdown
+    assert "挂羊头卖狗肉" not in markdown
+
+
 def test_plain_language_summary_explains_result_before_technical_details():
     markdown = render_markdown(audit_result())
 
@@ -275,3 +366,168 @@ def test_channel_risk_profile_translates_cloud_and_pool_tags_for_users():
     assert "云托管渠道：疑似 AWS/Bedrock" in markdown
     assert "Web 逆向 / 账号池：存在疑似风险" in markdown
     assert "HOSTED_BY_AWS" not in markdown.split("## Target Summary", 1)[0]
+
+
+def test_channel_risk_profile_reports_stable_repeat_sampling_without_pool_risk():
+    result = replace(
+        audit_result(),
+        probe_results=[
+            ProbeResult("repeated_run_variance", "passed", []),
+        ],
+        verdict=Verdict(
+            rating=Rating.HIGH_TRUST,
+            authenticity_score=95,
+            risk_score=0,
+            tags=[],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "Web 逆向 / 账号池：已采样，未发现疑似风险" in markdown
+
+
+def test_suspected_upstream_signals_explain_deepseek_r1_style_under_claude_claim():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "claude-sonnet-4-5",
+            "endpoint": "claude-relay",
+            "claimed_provider": "anthropic",
+            "claimed_api_shape": "openai-compatible",
+        },
+        claim=Claim(model="claude-sonnet-4-5", provider="anthropic", api_shape="openai-compatible"),
+        probe_results=[
+            ProbeResult(
+                "reasoning_leakage",
+                "failed",
+                [
+                    EvidenceItem(
+                        "cross_provider_reasoning_leaked",
+                        "strong",
+                        False,
+                        "Response exposed provider-specific reasoning_content in an OpenAI-compatible Claude claim.",
+                        details={"observed_model": "deepseek-r1", "observed_fields": ["reasoning_content"]},
+                        tags=["CROSS_PROVIDER_REASONING_LEAKED"],
+                    )
+                ],
+            )
+        ],
+    )
+
+    markdown = render_markdown(result)
+
+    assert "## Suspected Upstream Signals / 疑似上游特征" in markdown
+    assert "疑似 DeepSeek/R1 风格上游或兼容层" in markdown
+    assert "reasoning_content" in markdown
+    assert "不能证明真实官方上游" in markdown
+
+
+def test_suspected_upstream_signals_explain_claude_style_under_openai_claim():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "gpt-5",
+            "endpoint": "openai-relay",
+            "claimed_provider": "openai",
+            "claimed_api_shape": "openai-compatible",
+        },
+        claim=Claim(model="gpt-5", provider="openai", api_shape="openai-compatible"),
+        probe_results=[
+            ProbeResult(
+                "openai_model_claim_consistency",
+                "failed",
+                [
+                    EvidenceItem(
+                        "openai_model_claim",
+                        "strong",
+                        False,
+                        "Observed model `claude-3-5-sonnet` belongs to a non-OpenAI provider family.",
+                        details={"observed_model": "claude-3-5-sonnet"},
+                        tags=["CROSS_PROVIDER_MODEL_LEAKED"],
+                    )
+                ],
+            )
+        ],
+    )
+
+    markdown = render_markdown(result)
+
+    assert "疑似 Claude/Anthropic 风格上游或兼容层" in markdown
+    assert "claude-3-5-sonnet" in markdown
+    assert "官方 Claude 上游" not in markdown
+
+
+def test_suspected_upstream_signals_explain_openai_style_under_deepseek_claim():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "deepseek-r1",
+            "endpoint": "deepseek-relay",
+            "claimed_provider": "deepseek",
+            "claimed_api_shape": "openai-compatible",
+        },
+        claim=Claim(model="deepseek-r1", provider="deepseek", api_shape="openai-compatible"),
+        probe_results=[
+            ProbeResult(
+                "deepseek_model_claim_consistency",
+                "failed",
+                [
+                    EvidenceItem(
+                        "deepseek_model_claim",
+                        "strong",
+                        False,
+                        "Response exposed provider-exclusive metadata under a DeepSeek claim.",
+                        details={"observed_fields": ["system_fingerprint"]},
+                        tags=["CROSS_PROVIDER_MODEL_LEAKED"],
+                    )
+                ],
+            )
+        ],
+    )
+
+    markdown = render_markdown(result)
+
+    assert "疑似 OpenAI 风格上游或兼容层" in markdown
+    assert "system_fingerprint" in markdown
+    assert "不改变可信度评分" in markdown
+
+
+def test_suspected_upstream_signals_keep_weak_model_strings_auxiliary():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "gpt-5",
+            "endpoint": "openai-relay",
+            "claimed_provider": "openai",
+            "claimed_api_shape": "openai-compatible",
+        },
+        claim=Claim(model="gpt-5", provider="openai", api_shape="openai-compatible"),
+        probe_results=[
+            ProbeResult(
+                "channel_risk_observations",
+                "warning",
+                [
+                    EvidenceItem(
+                        "model_name_hint",
+                        "weak",
+                        False,
+                        "A weak relay metadata string mentioned claude-style-model.",
+                        details={"observed_model": "claude-style-model"},
+                    )
+                ],
+            )
+        ],
+        verdict=Verdict(rating=Rating.MEDIUM_TRUST, authenticity_score=78, risk_score=25, tags=[]),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "疑似 Claude/Anthropic 风格上游或兼容层" in markdown
+    assert "辅助提示" in markdown
+    assert "官方 Claude 上游" not in markdown
+    assert "- Authenticity score: 78" in markdown
