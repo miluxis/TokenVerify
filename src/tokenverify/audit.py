@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tokenverify.audit_plan import UnsupportedAuditTarget, build_audit_plan
 from tokenverify.models import AuditResult, EvidenceItem, ProbeResult, ProviderEvent, RiskTag
 from tokenverify.providers.anthropic import AnthropicMessagesClient, build_messages_payload
 from tokenverify.providers.openai_compatible import (
@@ -41,8 +42,15 @@ class AuditObservations:
 
 def run_audit(runtime_config, observations: AuditObservations | None = None) -> AuditResult:
     claim = runtime_config.endpoint.claim
-    if claim and claim.provider == "anthropic" and claim.api_shape == "openai-compatible":
-        return _run_openai_compatible_claude_audit(runtime_config, observations)
+    if claim:
+        try:
+            plan = build_audit_plan(claim)
+        except UnsupportedAuditTarget as exc:
+            probe_results = [ProbeResult("unsupported_audit_target", "error", errors=[str(exc)])]
+            rating, breakdown, verdict = score_probe_results(probe_results)
+            return _result(runtime_config, probe_results, rating, breakdown, verdict)
+        if plan.path == "anthropic_openai_compatible":
+            return _run_openai_compatible_claude_audit(runtime_config, observations)
 
     observations = observations or _collect_live_observations(runtime_config)
     probe_results: list[ProbeResult] = []

@@ -232,3 +232,27 @@ endpoints:
     assert "CLAUDE_VERSION_FIELD_LEAKED" in result.verdict.tags
     assert "RELAY_HEADER_SUSPECT" in result.verdict.tags
     assert "TTFT_VARIANCE_HIGH" in result.verdict.tags
+
+
+def test_unsupported_provider_claim_is_explicitly_out_of_scope(tmp_path):
+    config_path = tmp_path / "audit.yaml"
+    config_path.write_text(
+        """
+selected_endpoint: relay
+endpoints:
+  - name: relay
+    base_url: https://relay.example/v1
+    provider: deepseek
+    api_shape: openai-compatible
+    model: deepseek-r1
+    api_key: TOKEN_PLACEHOLDER
+""",
+        encoding="utf-8",
+    )
+    runtime_config = load_runtime_config(config_path)
+
+    result = run_audit(runtime_config, observations=AuditObservations())
+
+    assert result.rating == Rating.INCONCLUSIVE
+    assert result.probe_results[0].name == "unsupported_audit_target"
+    assert "out of scope" in result.probe_results[0].errors[0]

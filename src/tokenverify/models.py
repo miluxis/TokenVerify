@@ -13,6 +13,15 @@ class Rating(str, Enum):
     INCONCLUSIVE = "无法判定"
 
 
+class ProbeCategory(str, Enum):
+    PROTOCOL = "protocol"
+    CAPABILITY = "capability"
+    STREAM = "stream"
+    ERROR = "error"
+    REPEATABILITY = "repeatability"
+    CHANNEL_RISK = "channel_risk"
+
+
 class EvidenceTag(str, Enum):
     ANTHROPIC_NATIVE_SHAPE_MATCH = "ANTHROPIC_NATIVE_SHAPE_MATCH"
     ANTHROPIC_NATIVE_SHAPE_MISMATCH = "ANTHROPIC_NATIVE_SHAPE_MISMATCH"

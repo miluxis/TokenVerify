@@ -67,6 +67,44 @@ class AnthropicMessagesClient:
         return headers
 
 
+class AnthropicProviderAdapter:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        headers: dict[str, str] | None = None,
+        transport: httpx.BaseTransport | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        self.client = AnthropicMessagesClient(
+            base_url=base_url,
+            api_key=api_key,
+            headers=headers,
+            transport=transport,
+            timeout=timeout,
+        )
+
+    def create_probe_response(self, model: str, prompt: str, max_tokens: int = 64) -> dict:
+        return self.client.create_message(
+            build_messages_payload(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                stream=False,
+            )
+        )
+
+    def stream_probe_events(self, model: str, prompt: str, max_tokens: int = 64) -> list[ProviderEvent]:
+        return self.client.stream_message_events(
+            build_messages_payload(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                stream=True,
+            )
+        )
+
+
 def build_messages_payload(
     model: str,
     messages: list[dict],

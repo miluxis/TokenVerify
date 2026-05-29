@@ -1,4 +1,4 @@
-from tokenverify.models import Claim, EvidenceTag, Rating, RiskTag, Verdict
+from tokenverify.models import Claim, EvidenceTag, ProbeCategory, Rating, RiskTag, Verdict
 
 
 def test_rating_values_are_stable_for_report_output():
@@ -58,3 +58,12 @@ def test_claude_deep_dive_tag_values_are_stable():
     assert RiskTag.RATE_LIMIT_RELAY_SUSPECT.value == "RATE_LIMIT_RELAY_SUSPECT"
     assert RiskTag.REGION_LATENCY_INCONSISTENT.value == "REGION_LATENCY_INCONSISTENT"
     assert RiskTag.MODEL_DRIFT_SUSPECT.value == "MODEL_DRIFT_SUSPECT"
+
+
+def test_probe_category_values_are_stable():
+    assert ProbeCategory.PROTOCOL.value == "protocol"
+    assert ProbeCategory.CAPABILITY.value == "capability"
+    assert ProbeCategory.STREAM.value == "stream"
+    assert ProbeCategory.ERROR.value == "error"
+    assert ProbeCategory.REPEATABILITY.value == "repeatability"
+    assert ProbeCategory.CHANNEL_RISK.value == "channel_risk"
