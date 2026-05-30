@@ -7,9 +7,17 @@ from pathlib import Path
 
 from tokenverify.audit_plan import UnsupportedAuditTarget, build_audit_plan
 from tokenverify.models import AuditResult, EvidenceItem, ProbeResult, ProviderEvent, RiskTag
+from tokenverify.dynamic_challenges import (
+    ChallengePackError,
+    load_challenge_pack,
+    load_default_challenge_pack,
+    run_dynamic_challenges,
+)
 from tokenverify.providers.anthropic import AnthropicMessagesClient, build_messages_payload
+from tokenverify.providers.anthropic import AnthropicProviderAdapter
 from tokenverify.providers.openai_compatible import (
     OpenAICompatibleChatClient,
+    OpenAICompatibleProviderAdapter,
     SelfRelayLoopError,
     build_chat_completions_payload,
 )
@@ -59,7 +67,14 @@ class AuditObservations:
     is_trivial_prompt: bool = False
 
 
-def run_audit(runtime_config, observations: AuditObservations | None = None, repeat_count: int = 1) -> AuditResult:
+def run_audit(
+    runtime_config,
+    observations: AuditObservations | None = None,
+    repeat_count: int = 1,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+) -> AuditResult:
+    dynamic_challenges_enabled = observations is None
     claim = runtime_config.endpoint.claim
     if claim:
         try:
@@ -67,20 +82,57 @@ def run_audit(runtime_config, observations: AuditObservations | None = None, rep
         except UnsupportedAuditTarget as exc:
             probe_results = [ProbeResult("unsupported_audit_target", "error", errors=[str(exc)])]
             rating, breakdown, verdict = score_probe_results(probe_results)
-            return _result(runtime_config, probe_results, rating, breakdown, verdict)
+            return _result(
+                runtime_config,
+                probe_results,
+                rating,
+                breakdown,
+                verdict,
+                dynamic_challenges_enabled=dynamic_challenges_enabled,
+            )
         if plan.path == "anthropic_openai_compatible":
-            return _run_openai_compatible_claude_audit(runtime_config, observations, repeat_count=repeat_count)
+            return _run_openai_compatible_claude_audit(
+                runtime_config,
+                observations,
+                repeat_count=repeat_count,
+                challenge_pack_path=challenge_pack_path,
+                challenge_level=challenge_level,
+                dynamic_challenges_enabled=dynamic_challenges_enabled,
+            )
         if plan.path == "openai_openai_compatible":
-            return _run_openai_compatible_audit(runtime_config, observations, repeat_count=repeat_count)
+            return _run_openai_compatible_audit(
+                runtime_config,
+                observations,
+                repeat_count=repeat_count,
+                challenge_pack_path=challenge_pack_path,
+                challenge_level=challenge_level,
+                dynamic_challenges_enabled=dynamic_challenges_enabled,
+            )
         if plan.path == "deepseek_openai_compatible":
-            return _run_deepseek_compatible_audit(runtime_config, observations, repeat_count=repeat_count)
+            return _run_deepseek_compatible_audit(
+                runtime_config,
+                observations,
+                repeat_count=repeat_count,
+                challenge_pack_path=challenge_pack_path,
+                challenge_level=challenge_level,
+                dynamic_challenges_enabled=dynamic_challenges_enabled,
+            )
 
     observations = observations or _collect_live_observations(runtime_config)
     probe_results: list[ProbeResult] = []
     if observations.thinking_error == "API key is required for live audit.":
         probe_results.append(ProbeResult("messages_protocol", "error", errors=[observations.thinking_error]))
         rating, breakdown, verdict = score_probe_results(probe_results)
-        return _result(runtime_config, probe_results, rating, breakdown, verdict)
+        return _result(
+            runtime_config,
+            probe_results,
+            rating,
+            breakdown,
+            verdict,
+            challenge_pack_path=challenge_pack_path,
+            challenge_level=challenge_level,
+            dynamic_challenges_enabled=dynamic_challenges_enabled,
+        )
     if observations.messages_response is not None:
         probe_results.append(evaluate_messages_response(observations.messages_response))
     if observations.messages_error is not None:
@@ -98,7 +150,16 @@ def run_audit(runtime_config, observations: AuditObservations | None = None, rep
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
-    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+    return _result(
+        runtime_config,
+        probe_results,
+        rating,
+        breakdown,
+        verdict,
+        challenge_pack_path=challenge_pack_path,
+        challenge_level=challenge_level,
+        dynamic_challenges_enabled=dynamic_challenges_enabled,
+    )
 
 
 def _collect_live_observations(runtime_config) -> AuditObservations:
@@ -145,6 +206,9 @@ def _run_openai_compatible_claude_audit(
     runtime_config,
     observations: AuditObservations | None,
     repeat_count: int = 1,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+    dynamic_challenges_enabled: bool = True,
 ) -> AuditResult:
     observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
     probe_results: list[ProbeResult] = []
@@ -167,7 +231,16 @@ def _run_openai_compatible_claude_audit(
             )
         )
         rating, breakdown, verdict = score_probe_results(probe_results)
-        return _result(runtime_config, probe_results, rating, breakdown, verdict)
+        return _result(
+            runtime_config,
+            probe_results,
+            rating,
+            breakdown,
+            verdict,
+            challenge_pack_path=challenge_pack_path,
+            challenge_level=challenge_level,
+            dynamic_challenges_enabled=dynamic_challenges_enabled,
+        )
 
     if observations.messages_response is not None:
         probe_results.append(evaluate_chat_completions_response(observations.messages_response))
@@ -215,7 +288,16 @@ def _run_openai_compatible_claude_audit(
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
-    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+    return _result(
+        runtime_config,
+        probe_results,
+        rating,
+        breakdown,
+        verdict,
+        challenge_pack_path=challenge_pack_path,
+        challenge_level=challenge_level,
+        dynamic_challenges_enabled=dynamic_challenges_enabled,
+    )
 
 
 def _collect_openai_compatible_observations(runtime_config, repeat_count: int = 1) -> AuditObservations:
@@ -276,6 +358,9 @@ def _run_openai_compatible_audit(
     runtime_config,
     observations: AuditObservations | None,
     repeat_count: int = 1,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+    dynamic_challenges_enabled: bool = True,
 ) -> AuditResult:
     observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
     probe_results: list[ProbeResult] = []
@@ -336,13 +421,25 @@ def _run_openai_compatible_audit(
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
-    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+    return _result(
+        runtime_config,
+        probe_results,
+        rating,
+        breakdown,
+        verdict,
+        challenge_pack_path=challenge_pack_path,
+        challenge_level=challenge_level,
+        dynamic_challenges_enabled=dynamic_challenges_enabled,
+    )
 
 
 def _run_deepseek_compatible_audit(
     runtime_config,
     observations: AuditObservations | None,
     repeat_count: int = 1,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+    dynamic_challenges_enabled: bool = True,
 ) -> AuditResult:
     observations = observations or _collect_openai_compatible_observations(runtime_config, repeat_count=repeat_count)
     probe_results: list[ProbeResult] = []
@@ -385,11 +482,38 @@ def _run_deepseek_compatible_audit(
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
-    return _result(runtime_config, probe_results, rating, breakdown, verdict)
+    return _result(
+        runtime_config,
+        probe_results,
+        rating,
+        breakdown,
+        verdict,
+        challenge_pack_path=challenge_pack_path,
+        challenge_level=challenge_level,
+        dynamic_challenges_enabled=dynamic_challenges_enabled,
+    )
 
 
-def _result(runtime_config, probe_results: list[ProbeResult], rating, breakdown: dict[str, int], verdict) -> AuditResult:
+def _result(
+    runtime_config,
+    probe_results: list[ProbeResult],
+    rating,
+    breakdown: dict[str, int],
+    verdict,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+    dynamic_challenges_enabled: bool = True,
+) -> AuditResult:
     claim = runtime_config.endpoint.claim
+    dynamic_challenge_results = (
+        _collect_dynamic_challenge_results(
+            runtime_config,
+            challenge_pack_path=challenge_pack_path,
+            challenge_level=challenge_level,
+        )
+        if dynamic_challenges_enabled
+        else []
+    )
     return AuditResult(
         target_summary={
             "base_url_host": _host(runtime_config.endpoint.base_url),
@@ -413,6 +537,47 @@ def _result(runtime_config, probe_results: list[ProbeResult], rating, breakdown:
             ProbeResult(name=str(probe.get("name", "extension_probe")), status="observation_only")
             for probe in runtime_config.extension_probes
         ],
+        dynamic_challenge_results=dynamic_challenge_results,
+    )
+
+
+def _collect_dynamic_challenge_results(
+    runtime_config,
+    challenge_pack_path: Path | None = None,
+    challenge_level: str | None = None,
+):
+    level = challenge_level or runtime_config.challenge_level
+    try:
+        pack = load_challenge_pack(challenge_pack_path or runtime_config.challenge_pack_path) if (
+            challenge_pack_path or runtime_config.challenge_pack_path
+        ) else load_default_challenge_pack()
+    except ChallengePackError:
+        raise
+    adapter = _dynamic_challenge_adapter(runtime_config)
+    return run_dynamic_challenges(
+        pack=pack,
+        level=level,
+        endpoint_name=runtime_config.endpoint.name,
+        model=runtime_config.endpoint.model,
+        adapter=adapter,
+    )
+
+
+def _dynamic_challenge_adapter(runtime_config):
+    endpoint = runtime_config.endpoint
+    if not endpoint.api_key:
+        return None
+    claim = endpoint.claim
+    if claim and claim.api_shape == "openai-compatible":
+        return OpenAICompatibleProviderAdapter(
+            base_url=endpoint.base_url,
+            api_key=endpoint.api_key,
+            headers=endpoint.headers,
+        )
+    return AnthropicProviderAdapter(
+        base_url=endpoint.base_url,
+        api_key=endpoint.api_key,
+        headers=endpoint.headers,
     )
 
 

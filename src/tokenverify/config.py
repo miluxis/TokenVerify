@@ -23,6 +23,8 @@ class CliOverrides:
     endpoint: str | None = None
     output: str | None = None
     raw_log_path: str | None = None
+    challenge_pack: str | None = None
+    challenge_level: str | None = None
 
 
 SECRET_KEYS = {"api_key", "authorization", "x-api-key", "anthropic-api-key"}
@@ -50,6 +52,8 @@ def load_runtime_config(
     raw_logs = raw.get("raw_logs") or {}
     raw_log_path = Path(overrides.raw_log_path) if overrides.raw_log_path else _optional_path(raw_logs.get("path"))
     raw_logs_enabled = bool(raw_logs.get("enabled", False) or raw_log_path)
+    challenge_pack_path = _optional_path(overrides.challenge_pack or raw.get("challenge_pack"))
+    challenge_level = str(overrides.challenge_level or raw.get("challenge_level") or "basic")
 
     effective = {
         **raw,
@@ -70,6 +74,8 @@ def load_runtime_config(
         },
         "output": str(output),
         "raw_logs": {"enabled": raw_logs_enabled, "path": str(raw_log_path) if raw_log_path else None},
+        "challenge_pack": str(challenge_pack_path) if challenge_pack_path else None,
+        "challenge_level": challenge_level,
     }
 
     return RuntimeConfig(
@@ -78,6 +84,8 @@ def load_runtime_config(
         raw_logs_enabled=raw_logs_enabled,
         raw_log_path=raw_log_path,
         extension_probes=list(raw.get("extension_probes") or []),
+        challenge_pack_path=challenge_pack_path,
+        challenge_level=challenge_level,
         redacted_config=redact_secrets(effective),
     )
 

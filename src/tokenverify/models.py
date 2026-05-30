@@ -127,6 +127,8 @@ class RuntimeConfig:
     raw_logs_enabled: bool = False
     raw_log_path: Path | None = None
     extension_probes: list[dict[str, Any]] = field(default_factory=list)
+    challenge_pack_path: Path | None = None
+    challenge_level: str = "basic"
     redacted_config: dict[str, Any] = field(default_factory=dict)
 
 
@@ -169,6 +171,24 @@ class StreamingMetrics:
 
 
 @dataclass(frozen=True)
+class ChallengeVerifierResult:
+    type: str
+    status: str
+    message: str
+
+
+@dataclass(frozen=True)
+class DynamicChallengeResult:
+    challenge_id: str
+    category: str
+    level: str
+    challenge_hash: str
+    status: str
+    verifier_results: list[ChallengeVerifierResult] = field(default_factory=list)
+    warning: str | None = None
+
+
+@dataclass(frozen=True)
 class AuditResult:
     target_summary: dict[str, Any]
     probe_results: list[ProbeResult]
@@ -180,3 +200,4 @@ class AuditResult:
     raw_log_path: Path | None = None
     redacted_config: dict[str, Any] = field(default_factory=dict)
     extension_probe_results: list[ProbeResult] = field(default_factory=list)
+    dynamic_challenge_results: list[DynamicChallengeResult] = field(default_factory=list)

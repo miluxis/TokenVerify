@@ -20,6 +20,9 @@ test = ["pytest>=8"]
 [project.scripts]
 tokenverify = "tokenverify.cli:app"
 
+[tool.setuptools.package-data]
+tokenverify = ["challenge_baseline.yaml"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

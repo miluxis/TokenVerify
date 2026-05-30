@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from tokenverify.config import CliOverrides, ConfigError, load_runtime_config
+from tokenverify.dynamic_challenges import ChallengePackError
 from tokenverify.audit import run_audit
 from tokenverify.models import Rating
 from tokenverify.report import render_markdown
@@ -55,10 +56,21 @@ def audit(
         help="Run a deeper audit for relay, account-pool, and reverse-channel risk signals: yes/no.",
     ),
     repeat: int | None = typer.Option(None, "--repeat", min=1, max=10, hidden=True),
+    challenge_pack: str | None = typer.Option(
+        None,
+        "--challenge-pack",
+        help="Run a local Dynamic Challenge Suite YAML pack.",
+    ),
+    challenge_level: str = typer.Option(
+        "basic",
+        "--challenge-level",
+        help="Dynamic challenge level: basic, standard, or strict.",
+    ),
 ) -> None:
     try:
         repeat_count = _repeat_count_for_detail_audit(detail_audit, repeat)
         report_language = _normalize_language(language)
+        normalized_challenge_level = _normalize_challenge_level(challenge_level)
     except ConfigError as exc:
         typer.echo(str(exc))
         raise typer.Exit(2) from exc
@@ -74,6 +86,8 @@ def audit(
                 api_key=api_key,
                 api_key_env=api_key_env,
                 raw_log_path=raw_log_path,
+                challenge_pack=challenge_pack,
+                challenge_level=normalized_challenge_level,
             ),
         )
     except ConfigError as exc:
@@ -83,7 +97,11 @@ def audit(
     if output is None:
         runtime_config = _with_auto_output_path(runtime_config)
 
-    result = run_audit(runtime_config, repeat_count=repeat_count)
+    try:
+        result = run_audit(runtime_config, repeat_count=repeat_count)
+    except ChallengePackError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(2) from exc
     markdown = render_markdown(result, language=report_language)
     runtime_config.output_path.parent.mkdir(parents=True, exist_ok=True)
     runtime_config.output_path.write_text(markdown, encoding="utf-8")
@@ -120,6 +138,13 @@ def _normalize_language(language: str) -> str:
     if normalized in {"en", "zh"}:
         return normalized
     raise ConfigError("--language must be en or zh.")
+
+
+def _normalize_challenge_level(level: str) -> str:
+    normalized = level.strip().lower()
+    if normalized in {"basic", "standard", "strict"}:
+        return normalized
+    raise ConfigError("--challenge-level must be basic, standard, or strict.")
 
 
 def _with_auto_output_path(runtime_config):
