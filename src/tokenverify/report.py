@@ -86,6 +86,7 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
         lines.append(f"- `{key}`: {value}")
     lines.extend(_authenticity_assertions_section(result.probe_results))
     lines.extend(_heuristic_risk_section(result))
+    lines.extend(_dynamic_challenge_section(result))
     lines.extend(_probe_sections_for_result(result.probe_results))
     lines.extend(["", "## Errors and Warnings"])
     warnings = list(result.report_warnings)
@@ -402,6 +403,32 @@ def _heuristic_risk_section(result: AuditResult) -> list[str]:
         state = "pass" if item.passed is True else "fail" if item.passed is False else "neutral"
         tags = f" Tags: {', '.join(item.tags)}." if item.tags else ""
         lines.append(f"- `{item.key}` ({state}): {item.message}{tags}")
+    return lines
+
+
+def _dynamic_challenge_section(result: AuditResult) -> list[str]:
+    lines = [
+        "",
+        "## Dynamic Challenge Results",
+        "",
+        "- Note: dynamic challenges are auxiliary evidence and do not change the trust rating or hard-fail scoring.",
+    ]
+    if not result.dynamic_challenge_results:
+        return lines + ["- Not run"]
+    for challenge in result.dynamic_challenge_results:
+        lines.extend(
+            [
+                f"### {challenge.challenge_id}",
+                f"- Category: {challenge.category}",
+                f"- Level: {challenge.level}",
+                f"- challenge_hash: {challenge.challenge_hash}",
+                f"- Status: {challenge.status}",
+            ]
+        )
+        for verifier in challenge.verifier_results:
+            lines.append(f"- Verifier `{verifier.type}`: {verifier.status} ({verifier.message})")
+        if challenge.warning:
+            lines.append(f"- Warning: {challenge.warning}")
     return lines
 
 

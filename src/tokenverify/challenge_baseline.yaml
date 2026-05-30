@@ -1,0 +1,52 @@
+id: tokenverify-baseline
+version: "2026.05.30"
+challenges:
+  - id: baseline-arithmetic-exact
+    category: arithmetic
+    level: basic
+    prompt: "Return only the decimal result of {{a}} + {{b}}."
+    variables:
+      a:
+        type: integer
+        min: 11
+        max: 49
+      b:
+        type: integer
+        min: 11
+        max: 49
+    verifiers:
+      - type: exact_answer
+        equals_expression: "a + b"
+  - id: baseline-json-shape
+    category: json_shape
+    level: standard
+    prompt: "Return a JSON object with an integer field named answer equal to {{value}}. Do not include a debug field."
+    variables:
+      value:
+        type: integer
+        min: 100
+        max: 999
+    verifiers:
+      - type: required_field
+        path: answer
+      - type: forbidden_field
+        path: debug
+      - type: json_schema
+        schema:
+          type: object
+          required: [answer]
+          properties:
+            answer:
+              type: integer
+  - id: baseline-stream-order
+    category: stream_ordering
+    level: strict
+    stream: true
+    prompt: "Reply with the nonce {{nonce}}."
+    variables:
+      nonce:
+        type: nonce
+        bytes: 4
+    verifiers:
+      - type: stream_ordering
+        sequence: [chat.completion.chunk]
