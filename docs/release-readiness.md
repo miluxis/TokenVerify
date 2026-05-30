@@ -47,8 +47,7 @@ The user-facing handoff should include:
 
 ## GitHub Release Checklist
 
-Use `v0.1.0-preview` for the first public preview unless the package version is
-changed before release.
+Use `v0.2.0-preview` for the Dynamic Challenge Suite preview release.
 
 Before creating the GitHub release:
 
@@ -77,7 +76,7 @@ llm, ai, audit, security, openai, anthropic, claude, deepseek, model-routing, ll
 Suggested release title:
 
 ```text
-TokenVerify v0.1.0-preview
+TokenVerify v0.2.0-preview
 ```
 
-Use the `CHANGELOG.md` `v0.1.0-preview` section as the release notes base.
+Use the `CHANGELOG.md` `v0.2.0-preview` section as the release notes base.

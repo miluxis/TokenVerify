@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.0-preview
+
+Dynamic Challenge Suite public preview.
+
+### Dynamic Challenge Suite
+
+- Added built-in public baseline challenge pack.
+- Added `--challenge-pack` for local YAML challenge packs.
+- Added `--challenge-level basic|standard|strict`.
+- Added deterministic local variables: `integer`, `hex`/`nonce`, and `choice`.
+- Added local verifiers: `exact_answer`, `required_field`, `forbidden_field`, `json_schema`, and `stream_ordering`.
+- Added `Dynamic Challenge Results` report section with sanitized challenge id, category, level, hash, status, and verifier summaries.
+
+### Safety and scoring
+
+- Dynamic challenge results remain auxiliary and do not change existing hard-fail authenticity scoring.
+- Expression verification uses an allowlisted AST parser and never uses Python `eval()`.
+- No-key paths skip or mark dynamic challenges inconclusive without sending live provider requests.
+- Default tests continue to use mock observations, local no-key paths, or `httpx.MockTransport`.
+
 ## v0.1.0-preview
 
 Initial public preview of TokenVerify.

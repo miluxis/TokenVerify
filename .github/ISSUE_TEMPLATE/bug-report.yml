@@ -39,7 +39,7 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: v0.1.0-preview or commit SHA
+      placeholder: v0.2.0-preview or commit SHA
   - type: checkboxes
     id: safety
     attributes:

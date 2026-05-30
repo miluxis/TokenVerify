@@ -54,6 +54,21 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --language zh
 ```
 
+Dynamic Challenge Suite runs a built-in public baseline pack by default. To use
+a local YAML pack and choose challenge depth:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/openai-compatible-audit.yaml \
+  --endpoint openai-compatible \
+  --challenge-pack examples/dynamic-challenge-pack.yaml \
+  --challenge-level standard
+```
+
+Dynamic challenge results are auxiliary. They appear in the report as sanitized
+challenge id, category, level, hash, status, and verifier summaries, and do not
+change the hard-fail authenticity scoring.
+
 ## Supported Audit Paths
 
 | Path | Example config | What it checks |
@@ -71,6 +86,8 @@ Current intentional boundaries:
   auditing are out of scope for the current CLI.
 - A single timeout, disconnect, or TTFT spike is treated as an operational
   anomaly, not proof of routing misconduct.
+- Dynamic challenge packs are local deterministic probes, not provider-specific
+  audits for unsupported model families.
 
 ## Configuration
 
@@ -114,6 +131,39 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 
 API keys are redacted from reports and raw logs.
 
+### Dynamic Challenge Packs
+
+Local challenge packs use YAML:
+
+```yaml
+id: local-baseline-example
+version: "2026.05"
+challenges:
+  - id: arithmetic-exact
+    category: arithmetic
+    level: basic
+    prompt: "Return only the decimal result of {{a}} + {{b}}."
+    variables:
+      a:
+        type: integer
+        min: 10
+        max: 99
+      b:
+        type: integer
+        min: 10
+        max: 99
+    verifiers:
+      - type: exact_answer
+        equals_expression: "a + b"
+```
+
+Supported variable types are `integer`, `hex`/`nonce`, and `choice`. Variables
+are generated deterministically from pack id, pack version, challenge id,
+variable name, and endpoint name. Supported local verifiers include
+`exact_answer`, `required_field`, `forbidden_field`, `json_schema`, and
+`stream_ordering`. Expression verification uses an allowlisted AST parser; YAML
+packs are never executed as Python code.
+
 ## Example Reports
 
 - [`examples/reports/claude-native-high-trust.md`](examples/reports/claude-native-high-trust.md)
@@ -151,6 +201,10 @@ Other report fields:
   strings, physical fingerprints, or response fields into provider-style clues
   such as OpenAI-style, Claude-style, or DeepSeek/R1-style. These hints do not
   replace scoring.
+- `Dynamic Challenge Results`: auxiliary local challenge outcomes. Reports show
+  only challenge id/category/level/hash/status and sanitized verifier summaries;
+  full challenge prompts, rendered variables, raw model output, and private
+  expected answers are not embedded.
 
 ## CLI Exit Codes
 
@@ -214,6 +268,8 @@ src/tokenverify/
   deepseek_capabilities.py    # DeepSeek model-family capability lookup
   model_capabilities.py       # Claude capability lookup
   openai_capabilities.py      # OpenAI model-family capability lookup
+  dynamic_challenges.py       # Local deterministic challenge packs and verifiers
+  challenge_baseline.yaml     # Built-in public baseline challenge pack
   models.py                   # Shared dataclasses, verdicts, ratings, tags
   providers/                 # Anthropic, OpenAI-compatible, OpenAI adapters
   probes/                    # Provider probes and streaming heuristics

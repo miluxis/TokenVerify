@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_project_metadata_is_ready_for_local_package_builds():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject["project"]
+    package_init = (ROOT / "src" / "tokenverify" / "__init__.py").read_text(encoding="utf-8")
 
     assert project["name"] == "tokenverify"
     assert re.fullmatch(r"\d+\.\d+\.\d+", project["version"])
+    assert f'__version__ = "{project["version"]}"' in package_init
     assert "audit" in project["description"].lower()
     assert project["license"]["text"] == "AGPL-3.0-only"
     assert project["scripts"]["tokenverify"] == "tokenverify.cli:app"
@@ -66,7 +68,7 @@ def test_release_readiness_doc_covers_versioning_and_packaging_checks():
     assert "tokenverify audit --help" in release_doc
     assert "Do not include API keys, raw event logs, or local scratch files" in release_doc
     assert "## GitHub Release Checklist" in release_doc
-    assert "v0.1.0-preview" in release_doc
+    assert "v0.2.0-preview" in release_doc
     assert "GitHub About" in release_doc
 
 
@@ -84,9 +86,13 @@ def test_user_guide_covers_supported_audit_paths_and_interpretation():
         "Suspected Upstream Signals",
         "Authenticity Assertions",
         "Heuristic Risk Profile",
+        "Dynamic Challenge Suite",
+        "Dynamic Challenge Results",
     ]:
         assert required in user_guide
     assert "--detail-audit yes" in user_guide
+    assert "--challenge-pack" in user_guide
+    assert "--challenge-level standard" in user_guide
     assert "--language zh" in user_guide
     assert "--repeat" not in user_guide
     assert "--output" not in user_guide
@@ -97,6 +103,9 @@ def test_readme_documents_auto_report_names_and_detail_audit():
 
     assert "reports/audit-[model-name]-[date].md" in readme
     assert "--detail-audit yes" in readme
+    assert "--challenge-pack" in readme
+    assert "--challenge-level standard" in readme
+    assert "Dynamic Challenge Results" in readme
     assert "--language zh" in readme
     assert "8 samples" in readme
     assert "--repeat" not in readme
@@ -115,6 +124,7 @@ def test_readme_community_entrypoint_documents_supported_paths_and_boundaries():
         "## Example Reports",
         "examples/reports/claude-native-high-trust.md",
         "examples/reports/deepseek-r1-reasoning-missing.md",
+        "examples/dynamic-challenge-pack.yaml",
         "## Safety and Privacy",
         "black-box audit",
         "does not prove the true upstream provider with certainty",
@@ -143,6 +153,7 @@ def test_readme_has_chinese_companion_without_mixing_long_chinese_into_english_r
         "OpenAI 兼容 Claude 中转",
         "OpenAI 兼容 OpenAI",
         "DeepSeek R1",
+        "Dynamic Challenge Results",
         "## 报告解读",
         "## 安全与隐私",
         "## 贡献者许可协议",
@@ -150,6 +161,8 @@ def test_readme_has_chinese_companion_without_mixing_long_chinese_into_english_r
         "AGPL-3.0-only",
         "CLA.md",
         "--language zh",
+        "--challenge-pack",
+        "--challenge-level standard",
         "reports/audit-[model-name]-[date].md",
     ]:
         assert required in zh_readme
@@ -203,6 +216,7 @@ def test_release_artifacts_are_not_gitignored():
     paths = [
         "docs/release-readiness.md",
         "docs/user-guide.md",
+        "examples/dynamic-challenge-pack.yaml",
         "examples/reports/claude-native-high-trust.md",
         "examples/reports/deepseek-r1-reasoning-missing.md",
     ]
@@ -231,7 +245,9 @@ def test_release_and_community_materials_are_ready_to_publish():
 
     for required in [
         "# Changelog",
-        "## v0.1.0-preview",
+        "## v0.2.0-preview",
+        "Dynamic Challenge Suite",
+        "--challenge-pack",
         "Claude native",
         "OpenAI-compatible Claude relay",
         "OpenAI-compatible OpenAI",

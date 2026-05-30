@@ -65,6 +65,31 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --language zh
 ```
 
+## Dynamic Challenge Suite
+
+TokenVerify runs a built-in public baseline challenge pack by default. These
+results are auxiliary and do not change the hard-fail authenticity rating.
+
+Use a local YAML pack and choose a level when you want deterministic local
+challenges beyond the built-in baseline:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/openai-compatible-audit.yaml \
+  --endpoint openai-compatible \
+  --challenge-pack examples/dynamic-challenge-pack.yaml \
+  --challenge-level standard
+```
+
+Supported levels are `basic`, `standard`, and `strict`. Supported deterministic
+variables are `integer`, `hex`/`nonce`, and `choice`. Supported local verifiers
+are `exact_answer`, `required_field`, `forbidden_field`, `json_schema`, and
+`stream_ordering`.
+
+Challenge variables are generated from stable local inputs, including pack id,
+pack version, challenge id, variable name, and endpoint name. Expression
+verification uses an allowlisted AST parser, not Python `eval()`.
+
 ## No-Key / Offline Behavior
 
 If no API key is configured, TokenVerify does not send a live provider request. It writes an `Inconclusive` report and returns exit code `3`. This is useful for checking config parsing, report generation, and no-key behavior without live network access.
@@ -80,6 +105,11 @@ Suspected Upstream Signals translates observed model strings, physical fingerpri
 Authenticity Assertions list strong or neutral evidence about the claimed provider/API/model behavior.
 
 Heuristic Risk Profile lists weak operational signals such as relay headers, synthetic streaming, latency variance, or account-pool wording. These signals can raise concern but do not by themselves prove provider forgery.
+
+Dynamic Challenge Results list sanitized local challenge outcomes. The report
+shows challenge id, category, level, hash, status, and neutral verifier
+summaries. It does not embed full challenge prompts, rendered variables, raw
+model output, or private expected answers.
 
 ## Exit Codes
 

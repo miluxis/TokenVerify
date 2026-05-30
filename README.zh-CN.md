@@ -45,6 +45,20 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --language zh
 ```
 
+Dynamic Challenge Suite 默认会运行内置公开 baseline pack。也可以指定本地
+YAML challenge pack，并选择挑战深度：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/openai-compatible-audit.yaml \
+  --endpoint openai-compatible \
+  --challenge-pack examples/dynamic-challenge-pack.yaml \
+  --challenge-level standard
+```
+
+Dynamic challenge 结果只作为辅助证据。报告只展示 challenge id、category、
+level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度评分。
+
 ## 支持的检测路径
 
 | 路径 | 示例配置 | 检查内容 |
@@ -59,6 +73,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 - Gemini、Seed、Qwen、Doubao 等 provider audit，除非先有 spec 和 implementation plan。
 - JSON 输出、dashboard UI、批量 endpoint 执行、tokenizer 精确匹配审计。
 - 单次 timeout、断连或 TTFT 尖峰不会被当作渠道作弊证明，只会作为运行异常或弱风险线索。
+- Dynamic challenge pack 是本地确定性探针，不是对未支持模型家族的 provider-specific audit。
 
 ## 配置
 
@@ -102,6 +117,38 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 
 报告和 raw log 会对配置中的 API key 做脱敏。
 
+### Dynamic Challenge Packs
+
+本地 challenge pack 使用 YAML：
+
+```yaml
+id: local-baseline-example
+version: "2026.05"
+challenges:
+  - id: arithmetic-exact
+    category: arithmetic
+    level: basic
+    prompt: "Return only the decimal result of {{a}} + {{b}}."
+    variables:
+      a:
+        type: integer
+        min: 10
+        max: 99
+      b:
+        type: integer
+        min: 10
+        max: 99
+    verifiers:
+      - type: exact_answer
+        equals_expression: "a + b"
+```
+
+支持的变量类型包括 `integer`、`hex`/`nonce` 和 `choice`。变量会基于 pack id、
+pack version、challenge id、variable name 和 endpoint name 确定性生成。支持
+的本地 verifier 包括 `exact_answer`、`required_field`、`forbidden_field`、
+`json_schema` 和 `stream_ordering`。表达式校验使用白名单 AST 解析器；YAML
+pack 不会被当作 Python 代码执行。
+
 ## 示例报告
 
 - [`examples/reports/claude-native-high-trust.md`](examples/reports/claude-native-high-trust.md)
@@ -127,6 +174,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 - `risk_score`：0-100，来自弱渠道健康启发式；它不是概率，也不是直接指控。
 - `tags`：稳定标签，例如 `ANTHROPIC_NATIVE_SHAPE_MATCH`、`CROSS_PROVIDER_REASONING_LEAKED`、`DEEPSEEK_REASONING_CONTENT_MISSING`、`SYNTHETIC_STREAM_SUSPECT`。
 - `Suspected Upstream Signals`：把模型字符串、物理指纹或响应字段翻译成 OpenAI 风格、Claude 风格、DeepSeek/R1 风格等辅助线索；它们不替代评分。
+- `Dynamic Challenge Results`：本地动态挑战的辅助结果。报告只显示 challenge id/category/level/hash/status 和脱敏 verifier 摘要；不会嵌入完整 prompt、渲染后的变量、原始模型输出或私有 expected answer。
 
 ## CLI 退出码
 
