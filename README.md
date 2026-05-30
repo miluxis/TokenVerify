@@ -1,61 +1,80 @@
 # TokenVerify
 
-TokenVerify is a Claude relay authenticity audit tool for checking whether a user-provided endpoint behaves like the claimed Claude API shape. Phase 1 focuses on Claude-native protocol signals, OpenAI-compatible Claude relay signals, Extended Thinking behavior, streaming physical features, and a human-readable Markdown report.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## Current MVP
+TokenVerify is a black-box audit CLI for checking whether an LLM endpoint
+behaves like its claimed provider, API shape, model family, and channel. It
+turns protocol behavior, model fields, reasoning signals, streaming metrics, and
+relay symptoms into a human-readable Markdown report.
 
-Implemented in this repository:
+TokenVerify does not prove the true upstream provider with certainty. It is
+designed to find strong contradictions, obvious capability downgrades, and
+channel-risk signals in user-provided endpoints.
 
-- Python package with a thin `tokenverify audit` CLI.
-- YAML configuration with CLI overrides.
-- Anthropic Messages payload builder, HTTP client, SSE stream parser, and error normalization.
-- OpenAI-compatible Chat Completions payload builder, HTTP client, SSE parser, self-relay loop safety header, and error normalization for claimed Claude relays.
-- Built-in probes for:
-  - Anthropic Messages response shape.
-  - OpenAI-compatible Chat Completions shape for claimed Claude relays.
-  - Claude model claim consistency.
-  - Cross-provider reasoning leakage and synthetic thinking text.
-  - Extended Thinking payload construction and outcome interpretation.
-  - Streaming metrics: TTFT, chunk intervals, chunk size distribution, estimated throughput, and synthetic stream heuristic.
-- Claude model capability lookup for interpreting Extended Thinking results.
-- Markdown report renderer with secret redaction.
-- Optional raw event log path support.
-- Unit tests and mocked end-to-end audit flow.
+## Quick Start
 
-Out of scope for this MVP:
-
-- Gemini, Seed, Qwen, Doubao, or other non-Claude provider auditing.
-- Streamlit or Web UI.
-- Batch endpoint execution.
-- JSON report output.
-- Tokenizer exact-match auditing.
-- Cognitive trap prompt scoring.
-
-## Requirements
-
-- Python 3.11+
-- Runtime dependencies:
-  - `httpx`
-  - `PyYAML`
-  - `typer`
-- Test dependency:
-  - `pytest`
-
-Install locally:
+Install for local development:
 
 ```bash
 python3 -m pip install -e ".[test]"
 ```
 
-If editable install is not needed:
+Run a no-key/offline configuration check:
 
 ```bash
-python3 -m pip install httpx PyYAML typer pytest
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/claude-audit.yaml \
+  --endpoint primary
 ```
+
+Reports are written automatically under `reports/audit-[model-name]-[date].md`.
+If a report with the same name already exists, TokenVerify appends a numeric
+suffix instead of overwriting it.
+
+For relay, reverse-channel, account-pool, latency-variance, or model-drift
+signals, run a detail audit:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/claude-openai-compatible-audit.yaml \
+  --endpoint claude-openai-compatible \
+  --detail-audit yes
+```
+
+Detail audit uses 8 samples internally. Users do not need to choose a repeat
+count; use `--detail-audit no` for the default fast single-sample audit.
+
+Reports use English explanations by default. Generate a Chinese report with:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/deepseek-compatible-audit.yaml \
+  --endpoint deepseek-compatible \
+  --detail-audit yes \
+  --language zh
+```
+
+## Supported Audit Paths
+
+| Path | Example config | What it checks |
+| --- | --- | --- |
+| Claude native | [`examples/claude-audit.yaml`](examples/claude-audit.yaml) | Anthropic Messages shape, Extended Thinking behavior, native stream sequence, error schema. |
+| OpenAI-compatible Claude relay | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions shape, Claude model claim consistency, Claude thinking/version clues, reasoning leakage, relay and channel-risk symptoms. |
+| OpenAI-compatible OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, official-vs-compatible channel clues. |
+| DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek model-family consistency, R1 `reasoning_content`, reasoning/content stream order, official-vs-compatible channel clues. |
+
+Current intentional boundaries:
+
+- Gemini, Seed, Qwen, Doubao, and other provider audits are not implemented
+  until there is a spec and implementation plan.
+- JSON output, dashboard UI, batch endpoint execution, and tokenizer exact-match
+  auditing are out of scope for the current CLI.
+- A single timeout, disconnect, or TTFT spike is treated as an operational
+  anomaly, not proof of routing misconduct.
 
 ## Configuration
 
-Start from [examples/claude-audit.yaml](/Users/Teng/MyProjects/TokenVerify/examples/claude-audit.yaml):
+Prefer `api_key_env` over plaintext API keys in YAML:
 
 ```yaml
 selected_endpoint: primary
@@ -67,76 +86,13 @@ endpoints:
     base_url: https://api.anthropic.com
     model: claude-sonnet-4-5
     api_key_env: ANTHROPIC_API_KEY
-extension_probes:
-  - name: appendix-only-example
-    prompt: "This custom probe is observation-only in Phase 1."
 ```
-
-Prefer `api_key_env` over plaintext API keys in YAML.
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
 ```
 
-For an OpenAI-compatible Claude relay, start from [examples/claude-openai-compatible-audit.yaml](/Users/Teng/MyProjects/TokenVerify/examples/claude-openai-compatible-audit.yaml):
-
-```yaml
-selected_endpoint: claude-openai-compatible
-raw_logs:
-  enabled: false
-  path: null
-endpoints:
-  - name: claude-openai-compatible
-    base_url: https://relay.example.com/v1
-    provider: anthropic
-    api_shape: openai-compatible
-    model: claude-sonnet-4.5
-    api_key_env: CLAUDE_RELAY_API_KEY
-```
-
-The OpenAI-compatible path sends Chat Completions requests with `Authorization: Bearer ...` and `X-TokenVerify-Scan: true`. It checks Chat Completions shape, Claude model claim consistency, reasoning leakage, terminal `finish_reason`, and self-relay loop symptoms. It does not audit OpenAI official models or non-Claude providers.
-
-Reports are written automatically under `reports/audit-[model-name]-[date].md`, where `[model-name]` is the configured model name converted into a safe filename slug. If a report with the same name already exists, TokenVerify appends a numeric suffix instead of overwriting it.
-
-## Usage
-
-Run an audit:
-
-```bash
-PYTHONPATH=src python3 -m tokenverify.cli audit \
-  --config examples/claude-audit.yaml \
-  --endpoint primary
-```
-
-Run an OpenAI-compatible Claude relay audit:
-
-```bash
-PYTHONPATH=src python3 -m tokenverify.cli audit \
-  --config examples/claude-openai-compatible-audit.yaml \
-  --endpoint claude-openai-compatible
-```
-
-Run a detail audit for compatible relay paths:
-
-```bash
-PYTHONPATH=src python3 -m tokenverify.cli audit \
-  --config examples/claude-openai-compatible-audit.yaml \
-  --endpoint claude-openai-compatible \
-  --detail-audit yes
-```
-
-Detail audit uses 8 samples internally to look for model drift, latency variance, relay, reverse-channel, and account-pool risk signals. Use `--detail-audit no` for the default fast single-sample audit.
-
-Reports use English explanations by default. Add `--language zh` when the report is intended for Chinese-speaking users:
-
-```bash
-PYTHONPATH=src python3 -m tokenverify.cli audit \
-  --config examples/claude-openai-compatible-audit.yaml \
-  --endpoint claude-openai-compatible \
-  --language zh
-```
-
-Useful overrides:
+CLI overrides are available for common fields:
 
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
@@ -147,7 +103,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --api-key-env ANTHROPIC_API_KEY
 ```
 
-Enable raw event log output explicitly:
+Enable raw event logging only when you explicitly need it:
 
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
@@ -158,53 +114,86 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 
 API keys are redacted from reports and raw logs.
 
+## Example Reports
+
+- [`examples/reports/claude-native-high-trust.md`](examples/reports/claude-native-high-trust.md)
+- [`examples/reports/deepseek-r1-reasoning-missing.md`](examples/reports/deepseek-r1-reasoning-missing.md)
+
+## Report Interpretation
+
+The report separates two kinds of conclusions:
+
+- `Authenticity Assertions`: strong or neutral evidence about the claimed
+  provider, API shape, model family, error schema, and reasoning/thinking
+  behavior.
+- `Heuristic Risk Profile`: weak channel-health indicators such as relay
+  headers, synthetic streaming, latency variance, cloud hosting clues, and
+  account-pool wording.
+
+The report uses four ratings:
+
+- `High Trust`: protocol behavior and expected capabilities match the claim.
+- `Medium Trust`: core behavior mostly matches but has gaps or ambiguous risk.
+- `Low Trust`: strong contradictions exist.
+- `Inconclusive`: not enough reliable evidence, such as missing API key, auth
+  failure, quota failure, unsupported target, or network failure.
+
+Other report fields:
+
+- `authenticity_score`: 0-100, derived from strong evidence against the
+  configured claim.
+- `risk_score`: 0-100, derived from weak channel-health heuristics. It is not a
+  probability and not a direct accusation.
+- `tags`: stable labels such as `ANTHROPIC_NATIVE_SHAPE_MATCH`,
+  `CROSS_PROVIDER_REASONING_LEAKED`, `DEEPSEEK_REASONING_CONTENT_MISSING`, or
+  `SYNTHETIC_STREAM_SUSPECT`.
+- `Suspected Upstream Signals`: auxiliary hints that translate observed model
+  strings, physical fingerprints, or response fields into provider-style clues
+  such as OpenAI-style, Claude-style, or DeepSeek/R1-style. These hints do not
+  replace scoring.
+
 ## CLI Exit Codes
 
-`tokenverify audit` writes the Markdown report before returning an audit-result exit code:
+`tokenverify audit` writes the Markdown report before returning an audit-result
+exit code:
 
 - `0`: audit completed with high or medium trust.
 - `1`: audit completed with low trust.
 - `2`: configuration or CLI argument error.
 - `3`: audit completed but the runtime result is inconclusive.
 
-No-key or offline paths do not send a real provider request. They produce an `Inconclusive` report and return exit code `3`; check the report for API key, network, quota, or unsupported-target details.
+No-key or offline paths do not send a real provider request. They produce an
+`Inconclusive` report and return exit code `3`; check the report for API key,
+network, quota, or unsupported-target details.
 
-## Report Ratings
+## Safety and Privacy
 
-The Markdown report separates two kinds of conclusions:
-
-- `Authenticity Assertions`: protocol, error schema, model capability, and thinking/reasoning block evidence that can support strong authenticity judgments.
-- `Heuristic Risk Profile`: timing, streaming regularity, synthetic stream, pooling, and channel-health symptoms. These produce a 0-100 risk score, not a probability and not a direct accusation.
-
-The report uses four authenticity ratings:
-
-- `High Trust`: protocol and expected Extended Thinking behavior match.
-- `Medium Trust`: core behavior mostly matches but has suspicious gaps.
-- `Low Trust`: strong evidence of non-Anthropic behavior or ignored Claude-native parameters.
-- `Inconclusive`: insufficient evidence, such as missing API key, auth failure, quota failure, or network failure.
-
-The report also includes:
-
-- `authenticity_score`: 0-100, derived from strong evidence against the configured claim.
-- `risk_score`: 0-100, derived from weak channel-health heuristics.
-- `tags`: stable labels such as `ANTHROPIC_NATIVE_SHAPE_MATCH`, `CROSS_PROVIDER_REASONING_LEAKED`, or `SYNTHETIC_STREAM_SUSPECT` for future dashboard and routing use.
-
-Streaming metrics are weak evidence. A single timeout, disconnect, or TTFT spike is treated as a network or operational anomaly rather than direct channel-risk proof.
+- No live network requests are made by the default test suite.
+- Provider HTTP tests use `httpx.MockTransport`.
+- Probe tests use mock observations or local no-key paths.
+- Real-network tests are opt-in and marked `real_network`.
+- Reports and raw logs redact configured API keys.
+- Do not publish API keys, raw event logs, or customer secrets in issues.
 
 ## Development
 
-Run the test suite:
+Run the default test suite:
 
 ```bash
 PYTHONPATH=src python3 -m pytest -v
 ```
 
-Real-network tests are marked `real_network` and skipped by default.
-
-Real-network tests are opt-in. Run them only when you intentionally want to hit configured external endpoints:
+Run opt-in real-network tests only when you intentionally want to hit configured
+external endpoints:
 
 ```bash
 PYTHONPATH=src python3 -m pytest -v -m real_network
+```
+
+Check CLI help:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit --help
 ```
 
 Provider and probe regression policy:
@@ -214,32 +203,36 @@ Provider and probe regression policy:
 - Probe behavior should use direct probe inputs or mock observations.
 - Default tests must pass without live network access.
 
-Check CLI help:
-
-```bash
-PYTHONPATH=src python3 -m tokenverify.cli audit --help
-```
-
 ## Project Layout
 
 ```text
 src/tokenverify/
-  audit.py                 # Audit orchestration
-  cli.py                   # Typer CLI
-  config.py                # YAML loading, overrides, redaction
-  model_capabilities.py    # Claude capability table
-  models.py                # Shared dataclasses and rating enum
-  providers/anthropic.py   # Anthropic client, payloads, SSE parsing
-  providers/openai_compatible.py # OpenAI-compatible client, payloads, SSE parsing
-  probes/messages.py       # Messages protocol shape probe
-  probes/openai_compatible.py # OpenAI-compatible Claude relay probes
-  probes/thinking.py       # Extended Thinking probe helpers
-  probes/streaming.py      # Streaming metric extraction
-  report.py                # Markdown report rendering
-  scoring.py               # Rating and score breakdown
+  audit.py                    # Audit orchestration
+  audit_plan.py               # Claim-to-probe routing
+  cli.py                      # Typer CLI
+  config.py                   # YAML loading, overrides, redaction
+  deepseek_capabilities.py    # DeepSeek model-family capability lookup
+  model_capabilities.py       # Claude capability lookup
+  openai_capabilities.py      # OpenAI model-family capability lookup
+  models.py                   # Shared dataclasses, verdicts, ratings, tags
+  providers/                 # Anthropic, OpenAI-compatible, OpenAI adapters
+  probes/                    # Provider probes and streaming heuristics
+  report.py                   # Markdown report rendering
+  scoring.py                  # Rating and score breakdown
+  upstream_signals.py         # Auxiliary provider-style signal extraction
 ```
 
-Design and implementation planning docs live under:
+User-facing docs:
 
-- [docs/superpowers/specs/2026-05-25-tokenverify-design.md](/Users/Teng/MyProjects/TokenVerify/docs/superpowers/specs/2026-05-25-tokenverify-design.md)
-- [docs/superpowers/plans/2026-05-25-tokenverify-implementation-plan.md](/Users/Teng/MyProjects/TokenVerify/docs/superpowers/plans/2026-05-25-tokenverify-implementation-plan.md)
+- [`docs/user-guide.md`](docs/user-guide.md)
+- [`docs/release-readiness.md`](docs/release-readiness.md)
+
+## Contributor License Agreement
+
+Contributions require the [Contributor License Agreement](CLA.md). Contributors retain copyright, while granting the project maintainer enough rights to distribute contributions under AGPL-3.0-only and possible future commercial license terms.
+
+## License
+
+TokenVerify is licensed under AGPL-3.0-only. See [LICENSE](LICENSE) for the full license text.
+
+To preserve white-box trust for individual developers, researchers, and community users, the core audit logic will remain open under AGPL-3.0-only. For enterprise environments or derivative routing systems where AGPL-3.0 copyleft obligations cannot be met, alternative commercial licensing paths may be explored in the future to support compliant adoption.
