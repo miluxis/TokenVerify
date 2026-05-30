@@ -15,8 +15,9 @@ venv/
 
 reports/
 *.jsonl
-docs/
-!docs/
-!docs/*.md
+
+# Local planning/spec work materials.
+docs/superpowers/
+
 !examples/reports/
 !examples/reports/*.md
