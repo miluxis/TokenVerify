@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible TokenVerify bug. Do not include API keys, raw event logs, or customer secrets.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include API keys, raw event logs, customer secrets, or unredacted endpoint credentials.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include the command and sanitized config shape.
+      placeholder: |
+        PYTHONPATH=src python3 -m tokenverify.cli audit --config ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0-preview or commit SHA
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, raw event logs, customer secrets, and unredacted endpoint credentials.
+          required: true

@@ -1,0 +1,35 @@
+name: Suspicious endpoint report
+description: Share a sanitized suspicious endpoint pattern. Do not include API keys, raw event logs, or customer secrets.
+title: "[Endpoint]: "
+labels: ["suspicious-endpoint"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share only redacted observations. Do not include live credentials, raw event logs, private endpoints, or customer secrets.
+  - type: textarea
+    id: claim
+    attributes:
+      label: Claimed provider, API shape, and model
+      placeholder: Provider: anthropic; API shape: openai-compatible; model: claude-sonnet-4-5
+    validations:
+      required: true
+  - type: textarea
+    id: observations
+    attributes:
+      label: Redacted observations
+      description: Include sanitized response fields, headers, error wording, or report tags.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Relevant report excerpts
+      description: Paste only redacted excerpts, not raw event logs.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, raw event logs, customer secrets, and unredacted endpoint credentials.
+          required: true

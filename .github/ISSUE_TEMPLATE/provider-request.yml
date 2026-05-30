@@ -1,0 +1,40 @@
+name: Provider request
+description: Request support for a new provider or model family. Do not include API keys, raw event logs, or customer secrets.
+title: "[Provider]: "
+labels: ["provider-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        No implementation without spec and implementation plan. Requests help prioritize future provider work, but they do not imply immediate support.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or model family
+      placeholder: Gemini, Qwen, Doubao, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: Claimed API shape and model names
+      description: Describe public docs or sanitized examples. Do not include credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Observable signals
+      description: What response fields, stream behavior, headers, or errors should TokenVerify inspect?
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Why this provider matters
+      description: Explain the audit scenario and expected report value.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, raw event logs, customer secrets, and unredacted endpoint credentials.
+          required: true

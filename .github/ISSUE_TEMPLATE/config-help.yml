@@ -1,0 +1,41 @@
+name: Config help
+description: Ask for help with TokenVerify configuration. Do not include API keys, raw event logs, or customer secrets.
+title: "[Config]: "
+labels: ["config-help"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Paste only sanitized YAML. Do not include API keys, raw event logs, customer secrets, or private endpoint credentials.
+  - type: textarea
+    id: config
+    attributes:
+      label: Sanitized config
+      render: yaml
+      placeholder: |
+        selected_endpoint: primary
+        endpoints:
+          - name: primary
+            base_url: https://example.invalid
+            model: model-name
+            api_key_env: PROVIDER_API_KEY
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error or report excerpt
+      description: Paste only redacted output.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, raw event logs, customer secrets, and unredacted endpoint credentials.
+          required: true

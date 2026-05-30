@@ -65,6 +65,9 @@ def test_release_readiness_doc_covers_versioning_and_packaging_checks():
     assert "python3 -m pip wheel . --no-deps" in release_doc
     assert "tokenverify audit --help" in release_doc
     assert "Do not include API keys, raw event logs, or local scratch files" in release_doc
+    assert "## GitHub Release Checklist" in release_doc
+    assert "v0.1.0-preview" in release_doc
+    assert "GitHub About" in release_doc
 
 
 def test_user_guide_covers_supported_audit_paths_and_interpretation():
@@ -213,3 +216,63 @@ def test_release_artifacts_are_not_gitignored():
     )
 
     assert result.returncode == 1, result.stdout
+
+
+def test_release_and_community_materials_are_ready_to_publish():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    launch_post = (ROOT / "docs" / "launch-post.md").read_text(encoding="utf-8")
+    pr_template = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    issue_templates = {
+        "bug": ROOT / ".github" / "ISSUE_TEMPLATE" / "bug-report.yml",
+        "provider": ROOT / ".github" / "ISSUE_TEMPLATE" / "provider-request.yml",
+        "endpoint": ROOT / ".github" / "ISSUE_TEMPLATE" / "suspicious-endpoint-report.yml",
+        "config": ROOT / ".github" / "ISSUE_TEMPLATE" / "config-help.yml",
+    }
+
+    for required in [
+        "# Changelog",
+        "## v0.1.0-preview",
+        "Claude native",
+        "OpenAI-compatible Claude relay",
+        "OpenAI-compatible OpenAI",
+        "DeepSeek R1",
+        "AGPL-3.0-only",
+        "Known limitations",
+    ]:
+        assert required in changelog
+
+    for required in [
+        "# TokenVerify Launch Post",
+        "English launch post",
+        "Chinese short version",
+        "examples/reports/claude-native-high-trust.md",
+        "examples/reports/deepseek-r1-reasoning-missing.md",
+        "does not prove the true upstream provider with certainty",
+    ]:
+        assert required in launch_post
+
+    for required in [
+        "I have read and agree to the CLA",
+        "PYTHONPATH=src python3 -m pytest -v",
+        "git diff --check",
+        "No live network requests",
+        "No API keys, raw event logs, or customer secrets",
+    ]:
+        assert required in pr_template
+
+    for path in issue_templates.values():
+        text = path.read_text(encoding="utf-8")
+        assert "name:" in text
+        assert "description:" in text
+        assert "Do not include API keys" in text
+
+    provider_text = issue_templates["provider"].read_text(encoding="utf-8")
+    assert "Provider request" in provider_text
+    assert "No implementation without spec and implementation plan" in provider_text
+
+    endpoint_text = issue_templates["endpoint"].read_text(encoding="utf-8")
+    assert "Suspicious endpoint report" in endpoint_text
+    assert "redacted" in endpoint_text
+
+    assert "sk-" not in changelog + launch_post + pr_template
+    assert "TOKEN_" not in changelog + launch_post + pr_template

@@ -44,3 +44,40 @@ The user-facing handoff should include:
 - `docs/user-guide.md` for supported audit paths and report interpretation.
 - `examples/*.yaml` for safe configuration templates.
 - `examples/reports/*.md` for offline mock reports that can be inspected without live provider requests.
+
+## GitHub Release Checklist
+
+Use `v0.1.0-preview` for the first public preview unless the package version is
+changed before release.
+
+Before creating the GitHub release:
+
+- Confirm `git status --short` contains only intended release files.
+- Run `PYTHONPATH=src python3 -m pytest -v`.
+- Run `git diff --check`.
+- Confirm `README.md`, `README.zh-CN.md`, `LICENSE`, `CLA.md`, and
+  `CHANGELOG.md` are present.
+- Confirm `.github/ISSUE_TEMPLATE/*` and `.github/PULL_REQUEST_TEMPLATE.md` are
+  present.
+- Confirm no API keys, raw event logs, customer secrets, or local scratch files
+  are staged.
+
+Suggested GitHub About description:
+
+```text
+Black-box LLM endpoint audit CLI for provider, model, reasoning, and relay-risk signals.
+```
+
+Suggested GitHub About topics:
+
+```text
+llm, ai, audit, security, openai, anthropic, claude, deepseek, model-routing, llmops, agpl
+```
+
+Suggested release title:
+
+```text
+TokenVerify v0.1.0-preview
+```
+
+Use the `CHANGELOG.md` `v0.1.0-preview` section as the release notes base.
