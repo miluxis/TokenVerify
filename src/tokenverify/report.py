@@ -52,14 +52,15 @@ DEEPSEEK_PROBE_ORDER = (
 )
 
 
-def render_markdown(result: AuditResult) -> str:
+def render_markdown(result: AuditResult, language: str = "en") -> str:
+    language = _normalize_language(language)
     lines = [
         "# TokenVerify Audit Report",
         "",
     ]
-    lines.extend(_plain_language_summary(result))
-    lines.extend(_channel_risk_profile(result))
-    lines.extend(_suspected_upstream_signals_section(result))
+    lines.extend(_plain_language_summary(result, language))
+    lines.extend(_channel_risk_profile(result, language))
+    lines.extend(_suspected_upstream_signals_section(result, language))
     lines.append("## Target Summary")
     for key, value in result.target_summary.items():
         if value is None:
@@ -117,72 +118,105 @@ def render_markdown(result: AuditResult) -> str:
     return "\n".join(lines)
 
 
-def _plain_language_summary(result: AuditResult) -> list[str]:
+def _normalize_language(language: str) -> str:
+    normalized = language.strip().lower()
+    if normalized not in {"en", "zh"}:
+        raise ValueError("language must be en or zh")
+    return normalized
+
+
+def _plain_language_summary(result: AuditResult, language: str) -> list[str]:
     breakdown = result.score_breakdown
     strong_passed = int(breakdown.get("strong_passed", 0))
     strong_failed = int(breakdown.get("strong_failed", 0))
     weak_failed = int(breakdown.get("weak_failed", 0))
     neutral = int(breakdown.get("neutral", 0))
 
+    tags = set(result.verdict.tags if result.verdict else [])
+
+    if language == "zh":
+        lines = [
+            "## Plain-Language Summary",
+            "",
+            f"- 本次检测结果：{result.rating.value}",
+            f"- 可信度分数：{_authenticity_score_text(result)}",
+            f"- 渠道风险分数：{_risk_score_text(result)}",
+        ]
+        if strong_passed:
+            lines.append(f"- 发现 {strong_passed} 条强证据支持该接口与声明相符。")
+        if strong_failed:
+            lines.append(f"- 发现 {strong_failed} 条强证据与声明不符，建议优先复核模型或渠道配置。")
+        if weak_failed:
+            lines.append(f"- 发现 {weak_failed} 条渠道或运行风险信号。")
+        if neutral:
+            lines.append(f"- 有 {neutral} 条信息只作为背景记录，不参与真假判断。")
+        if not any((strong_passed, strong_failed, weak_failed, neutral)):
+            lines.append("- 本次没有拿到足够响应证据，因此无法形成明确判断。")
+        if "CROSS_PROVIDER_MODEL_LEAKED" in tags or "CROSS_PROVIDER_REASONING_LEAKED" in tags:
+            lines.append("- 发现跨厂商串货或跨厂商字段泄漏，这是高优先级风险。")
+        if "DEEPSEEK_REASONING_CONTENT_MISSING" in tags:
+            lines.append("- 推理能力缺失：声明为 DeepSeek R1，但未检测到原生 reasoning_content 字段，疑似被路由到不支持 R1 推理能力的模型或兼容层。")
+        elif strong_failed == 0:
+            lines.append("- 未发现跨厂商串货、模型字段明显降级或强结构矛盾。")
+        lines.append("- 黑盒检测不能 100% 证明真实上游来源；它用于发现强矛盾、明显降级和渠道风险。")
+        return lines + [""]
+
     lines = [
         "## Plain-Language Summary",
         "",
-        f"- 本次检测结果：{result.rating.value}",
-        f"- 可信度分数：{_authenticity_score_text(result)}",
-        f"- 渠道风险分数：{_risk_score_text(result)}",
+        f"- Audit result: {result.rating.value}",
+        f"- Authenticity score: {_authenticity_score_text(result)}",
+        f"- Channel risk score: {_risk_score_text(result)}",
     ]
     if strong_passed:
-        lines.append(f"- 发现 {strong_passed} 条强证据支持该接口与声明相符。")
+        lines.append(f"- Found {strong_passed} strong evidence items supporting the claim.")
     if strong_failed:
-        lines.append(f"- 发现 {strong_failed} 条强证据与声明不符，建议优先复核模型或渠道配置。")
+        lines.append(f"- Found {strong_failed} strong evidence items contradicting the claim; review the model or channel configuration first.")
     if weak_failed:
-        lines.append(f"- 发现 {weak_failed} 条渠道或运行风险信号。")
+        lines.append(f"- Found {weak_failed} channel or runtime risk signal.")
     if neutral:
-        lines.append(f"- 有 {neutral} 条信息只作为背景记录，不参与真假判断。")
+        lines.append(f"- Found {neutral} informational item used only as background context.")
     if not any((strong_passed, strong_failed, weak_failed, neutral)):
-        lines.append("- 本次没有拿到足够响应证据，因此无法形成明确判断。")
-
-    tags = set(result.verdict.tags if result.verdict else [])
+        lines.append("- Not enough response evidence was collected to make a clear judgment.")
     if "CROSS_PROVIDER_MODEL_LEAKED" in tags or "CROSS_PROVIDER_REASONING_LEAKED" in tags:
-        lines.append("- 发现跨厂商串货或跨厂商字段泄漏，这是高优先级风险。")
+        lines.append("- Cross-provider model or field leakage was observed; treat this as a high-priority risk.")
     if "DEEPSEEK_REASONING_CONTENT_MISSING" in tags:
-        lines.append("- 推理能力缺失：声明为 DeepSeek R1，但未检测到原生 reasoning_content 字段，疑似被路由到不支持 R1 推理能力的模型或兼容层。")
+        lines.append("- Missing reasoning capability: the endpoint claims DeepSeek R1, but native reasoning_content was not observed. It may be routed to a model or compatibility layer that does not support R1 reasoning.")
     elif strong_failed == 0:
-        lines.append("- 未发现跨厂商串货、模型字段明显降级或强结构矛盾。")
-
-    lines.append("- 黑盒检测不能 100% 证明真实上游来源；它用于发现强矛盾、明显降级和渠道风险。")
+        lines.append("- No cross-provider routing, obvious model downgrade, or strong structural contradiction was observed.")
+    lines.append("- Black-box checks cannot prove the true upstream source with 100% certainty; they are used to find strong contradictions, obvious downgrades, and channel risk.")
     return lines + [""]
 
 
-def _channel_risk_profile(result: AuditResult) -> list[str]:
+def _channel_risk_profile(result: AuditResult, language: str) -> list[str]:
     tags = set(result.verdict.tags if result.verdict else [])
     host = str(result.target_summary.get("base_url_host") or "")
     provider = str(result.target_summary.get("claimed_provider") or "")
     api_shape = str(result.target_summary.get("claimed_api_shape") or "")
     channel_claim = str(result.target_summary.get("claimed_channel") or "")
 
-    official_status = "未声明官方直连"
+    official_status = "not claimed"
     if channel_claim == "official":
-        official_status = "确认" if _is_official_host(provider, host) else "不符合"
+        official_status = "confirmed" if _is_official_host(provider, host) else "mismatch"
     elif _is_official_host(provider, host):
-        official_status = "看起来符合官方域名"
+        official_status = "appears to match official host"
 
-    relay_status = "未发现明确证据"
+    relay_status = "no clear evidence observed"
     if "OPENAI_OFFICIAL_CHANNEL_MISMATCH" in tags or "DEEPSEEK_OFFICIAL_CHANNEL_MISMATCH" in tags:
-        relay_status = "已确认"
+        relay_status = "confirmed"
     elif "RELAY_HEADER_SUSPECT" in tags or api_shape == "openai-compatible" and not _is_official_host(provider, host):
-        relay_status = "疑似"
+        relay_status = "suspected"
 
-    cloud_status = "未发现明确泄漏"
+    cloud_status = "no clear leak observed"
     cloud_markers = []
     if "HOSTED_BY_AWS" in tags:
         cloud_markers.append("AWS/Bedrock")
     if "HOSTED_BY_AZURE" in tags:
         cloud_markers.append("Azure")
     if cloud_markers:
-        cloud_status = "疑似 " + " / ".join(cloud_markers)
+        cloud_status = "suspected " + " / ".join(cloud_markers)
 
-    pool_status = "样本不足，无法判断"
+    pool_status = "not enough samples to judge"
     if {
         "RATE_LIMIT_RELAY_SUSPECT",
         "MODEL_DRIFT_SUSPECT",
@@ -190,20 +224,48 @@ def _channel_risk_profile(result: AuditResult) -> list[str]:
         "CONCURRENT_POOL_SUSPECT",
         "WEB_REVERSE_SUSPECT",
     } & tags:
-        pool_status = "存在疑似风险"
+        pool_status = "suspected risk observed"
     else:
         repeated_run_probe = _find_probe(result.probe_results, "repeated_run_variance")
         if repeated_run_probe and repeated_run_probe.status == "passed":
-            pool_status = "已采样，未发现疑似风险"
+            pool_status = "sampled; no suspected risk observed"
+
+    if language == "zh":
+        zh = {
+            "not claimed": "未声明官方直连",
+            "confirmed": "确认",
+            "mismatch": "不符合",
+            "appears to match official host": "看起来符合官方域名",
+            "no clear evidence observed": "未发现明确证据",
+            "suspected": "疑似",
+            "no clear leak observed": "未发现明确泄漏",
+            "not enough samples to judge": "样本不足，无法判断",
+            "suspected risk observed": "存在疑似风险",
+            "sampled; no suspected risk observed": "已采样，未发现疑似风险",
+        }
+        if cloud_markers:
+            cloud_status = "疑似 " + " / ".join(cloud_markers)
+        else:
+            cloud_status = zh[cloud_status]
+        return [
+            "## Channel Risk Profile",
+            "",
+            f"- 官方直连：{zh[official_status]}",
+            f"- 中转平台：{'已确认' if relay_status == 'confirmed' else zh[relay_status]}",
+            f"- 云托管渠道：{cloud_status}",
+            f"- Web 逆向 / 账号池：{zh[pool_status]}",
+            "- 说明：渠道画像基于域名、响应头、错误信息、模型字段和多次请求一致性；除非服务端直接泄漏上游标识，否则不能当作绝对证明。",
+            "",
+        ]
 
     return [
         "## Channel Risk Profile",
         "",
-        f"- 官方直连：{official_status}",
-        f"- 中转平台：{relay_status}",
-        f"- 云托管渠道：{cloud_status}",
-        f"- Web 逆向 / 账号池：{pool_status}",
-        "- 说明：渠道画像基于域名、响应头、错误信息、模型字段和多次请求一致性；除非服务端直接泄漏上游标识，否则不能当作绝对证明。",
+        f"- Official direct channel: {official_status}",
+        f"- Relay platform: {relay_status}",
+        f"- Cloud-hosted channel: {cloud_status}",
+        f"- Web reverse / account pool: {pool_status}",
+        "- Note: channel profiling is based on hostnames, response headers, error text, model fields, and repeated-request consistency. Unless the server directly leaks upstream identifiers, it is not absolute proof.",
         "",
     ]
 
@@ -217,19 +279,52 @@ def _is_official_host(provider: str, host: str) -> bool:
     return official_hosts.get(provider) == host
 
 
-def _suspected_upstream_signals_section(result: AuditResult) -> list[str]:
-    lines = [
-        "## Suspected Upstream Signals / 疑似上游特征",
-        "",
-        "- 说明：这些线索只解释响应里出现的厂商风格或兼容层特征，不能证明真实官方上游，且不改变可信度评分。",
-    ]
+def _suspected_upstream_signals_section(result: AuditResult, language: str) -> list[str]:
+    if language == "zh":
+        lines = [
+            "## Suspected Upstream Signals / 疑似上游特征",
+            "",
+            "- 说明：这些线索只解释响应里出现的厂商风格或兼容层特征，不能证明真实官方上游，且不改变可信度评分。",
+        ]
+    else:
+        lines = [
+            "## Suspected Upstream Signals",
+            "",
+            "- Note: these hints only explain provider-style or compatibility-layer traits observed in the response. They do not prove the real official upstream and do not change the trust rating.",
+        ]
     signals = find_suspected_upstream_signals(result)
     if not signals:
-        return lines + ["- 未发现明显跨厂商上游风格线索。", ""]
+        empty_text = "- 未发现明显跨厂商上游风格线索。" if language == "zh" else "- No obvious cross-provider upstream style hints were observed."
+        return lines + [empty_text, ""]
     for signal in signals:
         evidence = ", ".join(signal.evidence) if signal.evidence else "observed response metadata"
-        lines.append(f"- {signal.style}：{signal.auxiliary_label}。观察依据：{evidence}。")
+        if language == "zh":
+            lines.append(f"- {signal.style}：{signal.auxiliary_label}。观察依据：{evidence}。")
+        else:
+            style = _upstream_style_text(signal.style, language)
+            auxiliary_label = _auxiliary_label_text(signal.auxiliary_label, language)
+            lines.append(f"- {style}: {auxiliary_label}. Evidence: {evidence}.")
     return lines + [""]
+
+
+def _upstream_style_text(style: str, language: str) -> str:
+    if language == "zh":
+        return style
+    return {
+        "疑似 Claude/Anthropic 风格上游或兼容层": "suspected Claude/Anthropic-style upstream or compatibility layer",
+        "疑似 OpenAI 风格上游或兼容层": "suspected OpenAI-style upstream or compatibility layer",
+        "疑似 DeepSeek/R1 风格上游或兼容层": "suspected DeepSeek/R1-style upstream or compatibility layer",
+        "未建模厂商风格线索": "unmodeled provider-style clue",
+    }.get(style, style)
+
+
+def _auxiliary_label_text(label: str, language: str) -> str:
+    if language == "zh":
+        return label
+    return {
+        "辅助提示": "auxiliary hint",
+        "辅助解释": "auxiliary explanation",
+    }.get(label, label)
 
 
 def _probe_sections_for_result(probes: list[ProbeResult]) -> list[str]:

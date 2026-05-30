@@ -278,20 +278,29 @@ def test_plain_language_summary_translates_deepseek_missing_reasoning_objectivel
         ),
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "推理能力缺失：声明为 DeepSeek R1，但未检测到原生 reasoning_content 字段，疑似被路由到不支持 R1 推理能力的模型或兼容层。" in markdown
     assert "阉割" not in markdown
     assert "挂羊头卖狗肉" not in markdown
 
 
-def test_plain_language_summary_explains_result_before_technical_details():
+def test_plain_language_summary_defaults_to_english_before_technical_details():
     markdown = render_markdown(audit_result())
 
-    assert "本次检测结果：中可信" in markdown
+    assert "Audit result: Medium Trust" in markdown
+    assert "Found 2 strong evidence items supporting the claim" in markdown
+    assert "Found 1 channel or runtime risk signal" in markdown
+    assert "本次检测结果" not in markdown
+    assert markdown.index("## Plain-Language Summary") < markdown.index("## Evidence Score Breakdown")
+
+
+def test_plain_language_summary_can_render_chinese_for_localized_reports():
+    markdown = render_markdown(audit_result(), language="zh")
+
+    assert "本次检测结果：Medium Trust" in markdown
     assert "发现 2 条强证据支持该接口与声明相符" in markdown
     assert "发现 1 条渠道或运行风险信号" in markdown
-    assert markdown.index("## Plain-Language Summary") < markdown.index("## Evidence Score Breakdown")
 
 
 def test_channel_risk_profile_explains_official_mismatch_for_users():
@@ -334,7 +343,7 @@ def test_channel_risk_profile_explains_official_mismatch_for_users():
         ),
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "官方直连：不符合" in markdown
     assert "中转平台：已确认" in markdown
@@ -361,7 +370,7 @@ def test_channel_risk_profile_translates_cloud_and_pool_tags_for_users():
         ),
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "云托管渠道：疑似 AWS/Bedrock" in markdown
     assert "Web 逆向 / 账号池：存在疑似风险" in markdown
@@ -382,9 +391,36 @@ def test_channel_risk_profile_reports_stable_repeat_sampling_without_pool_risk()
         ),
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "Web 逆向 / 账号池：已采样，未发现疑似风险" in markdown
+
+
+def test_channel_risk_profile_defaults_to_english_for_users():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "hk.hboom.ai",
+            "model": "gpt-5.5",
+            "endpoint": "openai-official",
+            "claimed_provider": "openai",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_channel": "official",
+        },
+        verdict=Verdict(
+            rating=Rating.LOW_TRUST,
+            authenticity_score=39,
+            risk_score=0,
+            tags=["OPENAI_OFFICIAL_CHANNEL_MISMATCH"],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "Official direct channel: mismatch" in markdown
+    assert "Relay platform: confirmed" in markdown
+    assert "Cloud-hosted channel: no clear leak observed" in markdown
+    assert "Web reverse / account pool: not enough samples to judge" in markdown
 
 
 def test_suspected_upstream_signals_explain_deepseek_r1_style_under_claude_claim():
@@ -416,7 +452,7 @@ def test_suspected_upstream_signals_explain_deepseek_r1_style_under_claude_claim
         ],
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "## Suspected Upstream Signals / 疑似上游特征" in markdown
     assert "疑似 DeepSeek/R1 风格上游或兼容层" in markdown
@@ -453,7 +489,7 @@ def test_suspected_upstream_signals_explain_claude_style_under_openai_claim():
         ],
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "疑似 Claude/Anthropic 风格上游或兼容层" in markdown
     assert "claude-3-5-sonnet" in markdown
@@ -489,7 +525,7 @@ def test_suspected_upstream_signals_explain_openai_style_under_deepseek_claim():
         ],
     )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, language="zh")
 
     assert "疑似 OpenAI 风格上游或兼容层" in markdown
     assert "system_fingerprint" in markdown
@@ -527,7 +563,41 @@ def test_suspected_upstream_signals_keep_weak_model_strings_auxiliary():
 
     markdown = render_markdown(result)
 
-    assert "疑似 Claude/Anthropic 风格上游或兼容层" in markdown
-    assert "辅助提示" in markdown
+    assert "suspected Claude/Anthropic-style upstream or compatibility layer" in markdown
+    assert "auxiliary hint" in markdown
     assert "官方 Claude 上游" not in markdown
     assert "- Authenticity score: 78" in markdown
+
+
+def test_suspected_upstream_signals_can_render_chinese_labels():
+    result = replace(
+        audit_result(),
+        target_summary={
+            "base_url_host": "relay.example",
+            "model": "gpt-5",
+            "endpoint": "openai-relay",
+            "claimed_provider": "openai",
+            "claimed_api_shape": "openai-compatible",
+        },
+        claim=Claim(model="gpt-5", provider="openai", api_shape="openai-compatible"),
+        probe_results=[
+            ProbeResult(
+                "channel_risk_observations",
+                "warning",
+                [
+                    EvidenceItem(
+                        "model_name_hint",
+                        "weak",
+                        False,
+                        "A weak relay metadata string mentioned claude-style-model.",
+                        details={"observed_model": "claude-style-model"},
+                    )
+                ],
+            )
+        ],
+    )
+
+    markdown = render_markdown(result, language="zh")
+
+    assert "疑似 Claude/Anthropic 风格上游或兼容层" in markdown
+    assert "辅助提示" in markdown

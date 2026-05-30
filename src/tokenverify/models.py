@@ -7,10 +7,10 @@ from typing import Any
 
 
 class Rating(str, Enum):
-    HIGH_TRUST = "高可信"
-    MEDIUM_TRUST = "中可信"
-    LOW_TRUST = "低可信"
-    INCONCLUSIVE = "无法判定"
+    HIGH_TRUST = "High Trust"
+    MEDIUM_TRUST = "Medium Trust"
+    LOW_TRUST = "Low Trust"
+    INCONCLUSIVE = "Inconclusive"
 
 
 class ProbeCategory(str, Enum):

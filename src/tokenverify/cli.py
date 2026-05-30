@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import typer
@@ -12,10 +15,10 @@ from tokenverify.report import render_markdown
 AUDIT_HELP = """Run a TokenVerify audit and write a Markdown report.
 
 Native Claude example:
-  tokenverify audit --config examples/claude-audit.yaml --endpoint primary --output reports/claude-audit.md
+  tokenverify audit --config examples/claude-audit.yaml --endpoint primary
 
 OpenAI-compatible Claude relay example:
-  tokenverify audit --config examples/claude-openai-compatible-audit.yaml --endpoint claude-openai-compatible --repeat 3 --output reports/claude-relay-audit.md
+  tokenverify audit --config examples/claude-openai-compatible-audit.yaml --endpoint claude-openai-compatible --detail-audit yes
 
 Exit code 0: high/medium trust.
 Exit code 1: low trust.
@@ -41,8 +44,25 @@ def audit(
     api_key: str | None = typer.Option(None, "--api-key"),
     api_key_env: str | None = typer.Option(None, "--api-key-env"),
     raw_log_path: str | None = typer.Option(None, "--raw-log-path"),
-    repeat: int = typer.Option(1, "--repeat", min=1, max=10, help="Repeat live Chat Completions sampling 1-10 times."),
+    language: str = typer.Option(
+        "en",
+        "--language",
+        help="Report explanation language: en or zh.",
+    ),
+    detail_audit: str = typer.Option(
+        "no",
+        "--detail-audit",
+        help="Run a deeper audit for relay, account-pool, and reverse-channel risk signals: yes/no.",
+    ),
+    repeat: int | None = typer.Option(None, "--repeat", min=1, max=10, hidden=True),
 ) -> None:
+    try:
+        repeat_count = _repeat_count_for_detail_audit(detail_audit, repeat)
+        report_language = _normalize_language(language)
+    except ConfigError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(2) from exc
+
     try:
         runtime_config = load_runtime_config(
             config,
@@ -60,8 +80,11 @@ def audit(
         typer.echo(str(exc))
         raise typer.Exit(2) from exc
 
-    result = run_audit(runtime_config, repeat_count=repeat)
-    markdown = render_markdown(result)
+    if output is None:
+        runtime_config = _with_auto_output_path(runtime_config)
+
+    result = run_audit(runtime_config, repeat_count=repeat_count)
+    markdown = render_markdown(result, language=report_language)
     runtime_config.output_path.parent.mkdir(parents=True, exist_ok=True)
     runtime_config.output_path.write_text(markdown, encoding="utf-8")
     typer.echo(f"Wrote audit report: {runtime_config.output_path}")
@@ -79,6 +102,48 @@ def _exit_code_for_rating(rating: Rating) -> int:
     if rating == Rating.INCONCLUSIVE:
         return 3
     return 0
+
+
+def _repeat_count_for_detail_audit(detail_audit: str, repeat: int | None) -> int:
+    if repeat is not None:
+        return repeat
+    normalized = detail_audit.strip().lower()
+    if normalized == "yes":
+        return 8
+    if normalized == "no":
+        return 1
+    raise ConfigError("--detail-audit must be yes or no.")
+
+
+def _normalize_language(language: str) -> str:
+    normalized = language.strip().lower()
+    if normalized in {"en", "zh"}:
+        return normalized
+    raise ConfigError("--language must be en or zh.")
+
+
+def _with_auto_output_path(runtime_config):
+    output_path = _next_available_report_path(runtime_config.endpoint.model, date.today())
+    redacted_config = dict(runtime_config.redacted_config)
+    redacted_config["output"] = str(output_path)
+    return replace(runtime_config, output_path=output_path, redacted_config=redacted_config)
+
+
+def _next_available_report_path(model: str, today) -> Path:
+    model_slug = _slugify_model_name(model)
+    base_path = Path("reports") / f"audit-{model_slug}-{today}.md"
+    if not base_path.exists():
+        return base_path
+    for index in range(2, 1000):
+        candidate = base_path.with_name(f"{base_path.stem}-{index}{base_path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise ConfigError("Could not find an available report filename.")
+
+
+def _slugify_model_name(model: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", model.strip().lower()).strip("-")
+    return slug or "model"
 
 
 if __name__ == "__main__":

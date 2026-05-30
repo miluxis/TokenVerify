@@ -132,6 +132,7 @@ This checklist is the source of truth for roadmap progress. Update it when a mil
   - [x] More compact executive summary.
   - [x] Clear confidence wording.
   - [x] Clear separation between evidence and risk.
+  - [x] CLI-selectable English/Chinese report explanations.
   - [ ] Machine-readable appendix only after JSON output is intentionally in scope.
 - [x] Test and safety policy.
   - [x] No live network in normal tests.

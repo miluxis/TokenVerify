@@ -9,8 +9,7 @@ Use this path when the endpoint claims Anthropic native Messages API behavior.
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/claude-audit.yaml \
-  --endpoint primary \
-  --output reports/claude-audit.md
+  --endpoint primary
 ```
 
 This path checks Anthropic Messages shape, Extended Thinking behavior when expected, and native streaming signals.
@@ -23,8 +22,7 @@ Use this path when a relay exposes Chat Completions but claims to route to Claud
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/claude-openai-compatible-audit.yaml \
   --endpoint claude-openai-compatible \
-  --repeat 3 \
-  --output reports/claude-relay-audit.md
+  --detail-audit yes
 ```
 
 This path checks Chat Completions shape, Claude model naming, Claude thinking/version clues, cross-provider reasoning leakage, streaming finish behavior, and channel-risk symptoms.
@@ -37,8 +35,7 @@ Use this path when the endpoint claims OpenAI models through Chat Completions-co
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/openai-compatible-audit.yaml \
   --endpoint openai-compatible \
-  --repeat 3 \
-  --output reports/openai-compatible-audit.md
+  --detail-audit yes
 ```
 
 This path checks OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, and official-vs-compatible channel clues.
@@ -51,15 +48,26 @@ Use this path when the endpoint claims DeepSeek R1 or another DeepSeek Chat Comp
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/deepseek-compatible-audit.yaml \
   --endpoint deepseek-compatible \
-  --repeat 3 \
-  --output reports/deepseek-compatible-audit.md
+  --detail-audit yes
 ```
 
 For R1 claims, TokenVerify expects native `reasoning_content` evidence on non-trivial reasoning prompts. Missing native R1 reasoning fields can lower trust. DeepSeek-compatible relays are not treated as official DeepSeek unless the channel evidence supports that claim.
 
+Reports are written automatically under `reports/audit-[model-name]-[date].md`. Detail audit uses 8 samples internally to look for relay, reverse-channel, account-pool, latency-variance, and model-drift risk signals.
+
+Report explanations are English by default. Use `--language zh` for a Chinese report:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/deepseek-compatible-audit.yaml \
+  --endpoint deepseek-compatible \
+  --detail-audit yes \
+  --language zh
+```
+
 ## No-Key / Offline Behavior
 
-If no API key is configured, TokenVerify does not send a live provider request. It writes an `无法判定` report and returns exit code `3`. This is useful for checking config parsing, report generation, and no-key behavior without live network access.
+If no API key is configured, TokenVerify does not send a live provider request. It writes an `Inconclusive` report and returns exit code `3`. This is useful for checking config parsing, report generation, and no-key behavior without live network access.
 
 ## Report Interpretation
 

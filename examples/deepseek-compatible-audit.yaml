@@ -1,5 +1,4 @@
 selected_endpoint: deepseek-official
-output: reports/deepseek-compatible-audit.md
 raw_logs:
   enabled: false
   path: null

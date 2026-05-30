@@ -1,5 +1,4 @@
 selected_endpoint: primary
-output: reports/claude-audit.md
 raw_logs:
   enabled: false
   path: null

@@ -59,7 +59,6 @@ Start from [examples/claude-audit.yaml](/Users/Teng/MyProjects/TokenVerify/examp
 
 ```yaml
 selected_endpoint: primary
-output: reports/claude-audit.md
 raw_logs:
   enabled: false
   path: null
@@ -83,7 +82,6 @@ For an OpenAI-compatible Claude relay, start from [examples/claude-openai-compat
 
 ```yaml
 selected_endpoint: claude-openai-compatible
-output: reports/claude-openai-compatible-audit.md
 raw_logs:
   enabled: false
   path: null
@@ -98,6 +96,8 @@ endpoints:
 
 The OpenAI-compatible path sends Chat Completions requests with `Authorization: Bearer ...` and `X-TokenVerify-Scan: true`. It checks Chat Completions shape, Claude model claim consistency, reasoning leakage, terminal `finish_reason`, and self-relay loop symptoms. It does not audit OpenAI official models or non-Claude providers.
 
+Reports are written automatically under `reports/audit-[model-name]-[date].md`, where `[model-name]` is the configured model name converted into a safe filename slug. If a report with the same name already exists, TokenVerify appends a numeric suffix instead of overwriting it.
+
 ## Usage
 
 Run an audit:
@@ -105,8 +105,7 @@ Run an audit:
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/claude-audit.yaml \
-  --endpoint primary \
-  --output reports/claude-audit.md
+  --endpoint primary
 ```
 
 Run an OpenAI-compatible Claude relay audit:
@@ -114,18 +113,27 @@ Run an OpenAI-compatible Claude relay audit:
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/claude-openai-compatible-audit.yaml \
-  --endpoint claude-openai-compatible \
-  --output reports/claude-openai-compatible-audit.md
+  --endpoint claude-openai-compatible
 ```
 
-Run repeat sampling for compatible relay paths:
+Run a detail audit for compatible relay paths:
 
 ```bash
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --config examples/claude-openai-compatible-audit.yaml \
   --endpoint claude-openai-compatible \
-  --repeat 3 \
-  --output reports/claude-openai-compatible-audit.md
+  --detail-audit yes
+```
+
+Detail audit uses 8 samples internally to look for model drift, latency variance, relay, reverse-channel, and account-pool risk signals. Use `--detail-audit no` for the default fast single-sample audit.
+
+Reports use English explanations by default. Add `--language zh` when the report is intended for Chinese-speaking users:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --config examples/claude-openai-compatible-audit.yaml \
+  --endpoint claude-openai-compatible \
+  --language zh
 ```
 
 Useful overrides:
@@ -136,8 +144,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --endpoint primary \
   --base-url https://relay.example.com \
   --model claude-sonnet-4-5 \
-  --api-key-env ANTHROPIC_API_KEY \
-  --output reports/relay-audit.md
+  --api-key-env ANTHROPIC_API_KEY
 ```
 
 Enable raw event log output explicitly:
@@ -160,7 +167,7 @@ API keys are redacted from reports and raw logs.
 - `2`: configuration or CLI argument error.
 - `3`: audit completed but the runtime result is inconclusive.
 
-No-key or offline paths do not send a real provider request. They produce an `无法判定` report and return exit code `3`; check the report for API key, network, quota, or unsupported-target details.
+No-key or offline paths do not send a real provider request. They produce an `Inconclusive` report and return exit code `3`; check the report for API key, network, quota, or unsupported-target details.
 
 ## Report Ratings
 
@@ -171,10 +178,10 @@ The Markdown report separates two kinds of conclusions:
 
 The report uses four authenticity ratings:
 
-- `高可信`: protocol and expected Extended Thinking behavior match.
-- `中可信`: core behavior mostly matches but has suspicious gaps.
-- `低可信`: strong evidence of non-Anthropic behavior or ignored Claude-native parameters.
-- `无法判定`: insufficient evidence, such as missing API key, auth failure, quota failure, or network failure.
+- `High Trust`: protocol and expected Extended Thinking behavior match.
+- `Medium Trust`: core behavior mostly matches but has suspicious gaps.
+- `Low Trust`: strong evidence of non-Anthropic behavior or ignored Claude-native parameters.
+- `Inconclusive`: insufficient evidence, such as missing API key, auth failure, quota failure, or network failure.
 
 The report also includes:
 

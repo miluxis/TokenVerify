@@ -2,25 +2,25 @@
 
 ## Plain-Language Summary
 
-- 本次检测结果：高可信
-- 可信度分数：96
-- 渠道风险分数：0
-- 发现 2 条强证据支持该接口与声明相符。
-- 未发现跨厂商串货、模型字段明显降级或强结构矛盾。
-- 黑盒检测不能 100% 证明真实上游来源；它用于发现强矛盾、明显降级和渠道风险。
+- Audit result: High Trust
+- Authenticity score: 96
+- Channel risk score: 0
+- Found 2 strong evidence items supporting the claim.
+- No cross-provider routing, obvious model downgrade, or strong structural contradiction was observed.
+- Black-box checks cannot prove the true upstream source with 100% certainty; they are used to find strong contradictions, obvious downgrades, and channel risk.
 
 ## Channel Risk Profile
 
-- 官方直连：看起来符合官方域名
-- 中转平台：未发现明确证据
-- 云托管渠道：未发现明确泄漏
-- Web 逆向 / 账号池：样本不足，无法判断
-- 说明：渠道画像基于域名、响应头、错误信息、模型字段和多次请求一致性；除非服务端直接泄漏上游标识，否则不能当作绝对证明。
+- Official direct channel: appears to match official host
+- Relay platform: no clear evidence observed
+- Cloud-hosted channel: no clear leak observed
+- Web reverse / account pool: not enough samples to judge
+- Note: channel profiling is based on hostnames, response headers, error text, model fields, and repeated-request consistency. Unless the server directly leaks upstream identifiers, it is not absolute proof.
 
-## Suspected Upstream Signals / 疑似上游特征
+## Suspected Upstream Signals
 
-- 说明：这些线索只解释响应里出现的厂商风格或兼容层特征，不能证明真实官方上游，且不改变可信度评分。
-- 未发现明显跨厂商上游风格线索。
+- Note: these hints only explain provider-style or compatibility-layer traits observed in the response. They do not prove the real official upstream and do not change the trust rating.
+- No obvious cross-provider upstream style hints were observed.
 
 ## Target Summary
 
@@ -32,7 +32,7 @@
 
 ## Overall Verdict
 
-- Rating: **高可信**
+- Rating: **High Trust**
 - Authenticity score: 96
 - Risk score: 0
 - Tags: ANTHROPIC_NATIVE_SHAPE_MATCH, EXTENDED_THINKING_MATCH

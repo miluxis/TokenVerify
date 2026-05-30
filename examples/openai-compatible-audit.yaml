@@ -1,5 +1,4 @@
 selected_endpoint: openai-official
-output: reports/openai-compatible-audit.md
 raw_logs:
   enabled: false
   path: null

@@ -44,6 +44,35 @@ def test_user_guide_covers_supported_audit_paths_and_interpretation():
         "Heuristic Risk Profile",
     ]:
         assert required in user_guide
+    assert "--detail-audit yes" in user_guide
+    assert "--language zh" in user_guide
+    assert "--repeat" not in user_guide
+    assert "--output" not in user_guide
+
+
+def test_readme_documents_auto_report_names_and_detail_audit():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "reports/audit-[model-name]-[date].md" in readme
+    assert "--detail-audit yes" in readme
+    assert "--language zh" in readme
+    assert "8 samples" in readme
+    assert "--repeat" not in readme
+
+
+def test_user_facing_docs_and_example_reports_use_english_rating_labels():
+    forbidden = ("高可信", "中可信", "低可信", "无法判定")
+    paths = [
+        ROOT / "README.md",
+        ROOT / "docs" / "user-guide.md",
+        ROOT / "examples" / "reports" / "claude-native-high-trust.md",
+        ROOT / "examples" / "reports" / "deepseek-r1-reasoning-missing.md",
+    ]
+
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for rating in forbidden:
+            assert rating not in text, f"{rating} found in {path}"
 
 
 def test_offline_example_reports_exist_and_are_safe_to_publish():
@@ -56,7 +85,7 @@ def test_offline_example_reports_exist_and_are_safe_to_publish():
         "# TokenVerify Audit Report",
         "## Plain-Language Summary",
         "## Channel Risk Profile",
-        "## Suspected Upstream Signals / 疑似上游特征",
+        "## Suspected Upstream Signals",
         "## Overall Verdict",
         "## Authenticity Assertions",
         "## Heuristic Risk Profile",

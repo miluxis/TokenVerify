@@ -1,5 +1,4 @@
 selected_endpoint: claude-openai-compatible
-output: reports/claude-openai-compatible-audit.md
 raw_logs:
   enabled: false
   path: null

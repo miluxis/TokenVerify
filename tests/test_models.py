@@ -2,10 +2,10 @@ from tokenverify.models import Claim, EvidenceTag, ProbeCategory, Rating, RiskTa
 
 
 def test_rating_values_are_stable_for_report_output():
-    assert Rating.HIGH_TRUST.value == "高可信"
-    assert Rating.MEDIUM_TRUST.value == "中可信"
-    assert Rating.LOW_TRUST.value == "低可信"
-    assert Rating.INCONCLUSIVE.value == "无法判定"
+    assert Rating.HIGH_TRUST.value == "High Trust"
+    assert Rating.MEDIUM_TRUST.value == "Medium Trust"
+    assert Rating.LOW_TRUST.value == "Low Trust"
+    assert Rating.INCONCLUSIVE.value == "Inconclusive"
 
 
 def test_claim_defaults_to_anthropic_native_when_no_shape_hint_exists():
