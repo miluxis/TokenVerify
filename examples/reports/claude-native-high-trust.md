@@ -82,7 +82,9 @@ Risk score measures heuristic channel-health and relay-risk symptoms.
 {
   "endpoint": {
     "name": "primary",
-    "base_url": "https://api.anthropic.com",
+    "base_url_redacted": "***REDACTED***",
+    "base_url_hash": "85f13dfe69cdbb33",
+    "base_url_host": "api.anthropic.com",
     "model": "claude-sonnet-4-5"
   }
 }

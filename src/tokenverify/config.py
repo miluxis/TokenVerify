@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import yaml
 
 from tokenverify.models import Claim, EndpointConfig, RuntimeConfig
+from tokenverify.security import endpoint_host, hash_endpoint_url
 
 
 class ConfigError(ValueError):
@@ -27,7 +28,7 @@ class CliOverrides:
     challenge_level: str | None = None
 
 
-SECRET_KEYS = {"api_key", "authorization", "x-api-key", "anthropic-api-key"}
+SECRET_KEYS = {"api_key", "authorization", "x-api-key", "anthropic-api-key", "base_url"}
 
 
 def load_runtime_config(
@@ -60,7 +61,9 @@ def load_runtime_config(
         "selected_endpoint": endpoint.name,
         "endpoint": {
             "name": endpoint.name,
-            "base_url": endpoint.base_url,
+            "base_url_redacted": "***REDACTED***",
+            "base_url_hash": hash_endpoint_url(endpoint.base_url),
+            "base_url_host": endpoint_host(endpoint.base_url),
             "model": endpoint.model,
             "api_key": endpoint.api_key,
             "headers": endpoint.headers,

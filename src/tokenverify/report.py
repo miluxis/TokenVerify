@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from tokenverify.models import AuditResult, ProbeResult, RiskTag, StreamingMetrics
+from tokenverify.security import public_error_summary, sanitize_public_text
 from tokenverify.upstream_signals import find_suspected_upstream_signals
 
 
@@ -65,7 +66,7 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
     for key, value in result.target_summary.items():
         if value is None:
             continue
-        lines.append(f"- **{key}**: {value}")
+        lines.append(f"- **{sanitize_public_text(key)}**: {sanitize_public_text(value)}")
     lines.extend(
         [
             "",
@@ -96,7 +97,7 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
     if result.raw_log_path is not None:
         warnings.append(f"Raw event logging enabled. Log path: `{result.raw_log_path}`")
     if warnings:
-        lines.extend(f"- {warning}" for warning in warnings)
+        lines.extend(f"- {_public_warning_text(warning)}" for warning in warnings)
     else:
         lines.append("- None")
     if result.raw_log_path is not None:
@@ -104,14 +105,14 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
     if result.extension_probe_results:
         lines.extend(["", "## Extension Probe Appendix"])
         for probe in result.extension_probe_results:
-            lines.extend([f"### {probe.name}", f"- Status: {probe.status}"])
+            lines.extend([f"### {sanitize_public_text(probe.name)}", f"- Status: {sanitize_public_text(probe.status)}"])
     lines.extend(
         [
             "",
             "## Configuration Summary",
             "",
             "```json",
-            json.dumps(result.redacted_config, ensure_ascii=False, indent=2, default=str),
+            sanitize_public_text(json.dumps(result.redacted_config, ensure_ascii=False, indent=2, default=str)),
             "```",
             "",
         ]
@@ -124,6 +125,12 @@ def _normalize_language(language: str) -> str:
     if normalized not in {"en", "zh"}:
         raise ValueError("language must be en or zh")
     return normalized
+
+
+def _public_warning_text(warning: str) -> str:
+    if "raw logging enabled" in warning.lower() or "raw event logging enabled" in warning.lower():
+        return sanitize_public_text(warning)
+    return public_error_summary(warning)
 
 
 def _plain_language_summary(result: AuditResult, language: str) -> list[str]:
@@ -298,13 +305,13 @@ def _suspected_upstream_signals_section(result: AuditResult, language: str) -> l
         empty_text = "- 未发现明显跨厂商上游风格线索。" if language == "zh" else "- No obvious cross-provider upstream style hints were observed."
         return lines + [empty_text, ""]
     for signal in signals:
-        evidence = ", ".join(signal.evidence) if signal.evidence else "observed response metadata"
+        evidence = ", ".join(sanitize_public_text(item) for item in signal.evidence) if signal.evidence else "observed response metadata"
         if language == "zh":
-            lines.append(f"- {signal.style}：{signal.auxiliary_label}。观察依据：{evidence}。")
+            lines.append(f"- {sanitize_public_text(signal.style)}：{sanitize_public_text(signal.auxiliary_label)}。观察依据：{evidence}。")
         else:
             style = _upstream_style_text(signal.style, language)
             auxiliary_label = _auxiliary_label_text(signal.auxiliary_label, language)
-            lines.append(f"- {style}: {auxiliary_label}. Evidence: {evidence}.")
+            lines.append(f"- {sanitize_public_text(style)}: {sanitize_public_text(auxiliary_label)}. Evidence: {evidence}.")
     return lines + [""]
 
 
@@ -357,10 +364,13 @@ def _probe_section(title: str, probe: ProbeResult | None) -> list[str]:
     lines = ["", f"## {title}"]
     if probe is None:
         return lines + ["", "- Not run"]
-    lines.extend(["", f"- Status: {probe.status}"])
+    lines.extend(["", f"- Status: {sanitize_public_text(probe.status)}"])
     for item in probe.evidence:
         state = "pass" if item.passed is True else "fail" if item.passed is False else "neutral"
-        lines.append(f"- `{item.key}` ({item.weight}, {state}): {item.message}")
+        lines.append(
+            f"- `{sanitize_public_text(item.key)}` ({sanitize_public_text(item.weight)}, {state}): "
+            f"{sanitize_public_text(item.message)}"
+        )
     return lines
 
 
@@ -377,8 +387,11 @@ def _authenticity_assertions_section(probes: list[ProbeResult]) -> list[str]:
     lines.append("")
     for item in assertions:
         state = "pass" if item.passed is True else "fail" if item.passed is False else "neutral"
-        tags = f" Tags: {', '.join(item.tags)}." if item.tags else ""
-        lines.append(f"- `{item.key}` ({item.weight}, {state}): {item.message}{tags}")
+        tags = f" Tags: {', '.join(sanitize_public_text(tag) for tag in item.tags)}." if item.tags else ""
+        lines.append(
+            f"- `{sanitize_public_text(item.key)}` ({sanitize_public_text(item.weight)}, {state}): "
+            f"{sanitize_public_text(item.message)}{tags}"
+        )
     return lines
 
 
@@ -401,8 +414,8 @@ def _heuristic_risk_section(result: AuditResult) -> list[str]:
         return lines + ["- No heuristic risk indicators were produced."]
     for item in risk_items:
         state = "pass" if item.passed is True else "fail" if item.passed is False else "neutral"
-        tags = f" Tags: {', '.join(item.tags)}." if item.tags else ""
-        lines.append(f"- `{item.key}` ({state}): {item.message}{tags}")
+        tags = f" Tags: {', '.join(sanitize_public_text(tag) for tag in item.tags)}." if item.tags else ""
+        lines.append(f"- `{sanitize_public_text(item.key)}` ({state}): {sanitize_public_text(item.message)}{tags}")
     return lines
 
 
@@ -418,17 +431,20 @@ def _dynamic_challenge_section(result: AuditResult) -> list[str]:
     for challenge in result.dynamic_challenge_results:
         lines.extend(
             [
-                f"### {challenge.challenge_id}",
-                f"- Category: {challenge.category}",
-                f"- Level: {challenge.level}",
-                f"- challenge_hash: {challenge.challenge_hash}",
-                f"- Status: {challenge.status}",
+                f"### {sanitize_public_text(challenge.challenge_id)}",
+                f"- Category: {sanitize_public_text(challenge.category)}",
+                f"- Level: {sanitize_public_text(challenge.level)}",
+                f"- challenge_hash: {sanitize_public_text(challenge.challenge_hash)}",
+                f"- Status: {sanitize_public_text(challenge.status)}",
             ]
         )
         for verifier in challenge.verifier_results:
-            lines.append(f"- Verifier `{verifier.type}`: {verifier.status} ({verifier.message})")
+            lines.append(
+                f"- Verifier `{sanitize_public_text(verifier.type)}`: "
+                f"{sanitize_public_text(verifier.status)} ({sanitize_public_text(verifier.message)})"
+            )
         if challenge.warning:
-            lines.append(f"- Warning: {challenge.warning}")
+            lines.append(f"- Warning: {public_error_summary(challenge.warning)}")
     return lines
 
 
@@ -442,8 +458,7 @@ def _streaming_section(title: str, probe: ProbeResult | None) -> list[str]:
             "",
             f"- TTFT seconds: {metrics.ttft_seconds}",
             f"- Total latency seconds: {metrics.total_latency_seconds}",
-            f"- Chunk intervals: {metrics.chunk_intervals}",
-            f"- Chunk size distribution: {metrics.chunk_size_distribution}",
+            f"- Streaming summary: {len(metrics.chunk_size_distribution)} text chunk(s) observed; raw chunk timing arrays are retained only as internal observations.",
             f"- Estimated TPS: {metrics.estimated_tps}",
             f"- Synthetic stream heuristic: {metrics.is_synthetic_stream}",
         ]

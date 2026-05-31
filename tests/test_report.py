@@ -528,7 +528,8 @@ def test_suspected_upstream_signals_explain_openai_style_under_deepseek_claim():
     markdown = render_markdown(result, language="zh")
 
     assert "疑似 OpenAI 风格上游或兼容层" in markdown
-    assert "system_fingerprint" in markdown
+    assert "system_fingerprint" not in markdown
+    assert "[private-observation-field]" in markdown
     assert "不改变可信度评分" in markdown
 
 

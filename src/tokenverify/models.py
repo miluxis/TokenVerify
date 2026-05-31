@@ -5,6 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from tokenverify.security import REDACTED, endpoint_host, hash_endpoint_url
+
 
 class Rating(str, Enum):
     HIGH_TRUST = "High Trust"
@@ -119,6 +121,18 @@ class EndpointConfig:
     headers: dict[str, str] = field(default_factory=dict)
     claim: Claim | None = None
 
+    def __repr__(self) -> str:
+        return (
+            "EndpointConfig("
+            f"name={self.name!r}, "
+            f"base_url_hash={hash_endpoint_url(self.base_url)!r}, "
+            f"base_url_host={endpoint_host(self.base_url)!r}, "
+            f"model={self.model!r}, "
+            f"api_key={REDACTED!r}, "
+            f"headers={_redacted_headers(self.headers)!r}, "
+            f"claim={self.claim!r})"
+        )
+
 
 @dataclass(frozen=True)
 class RuntimeConfig:
@@ -130,6 +144,19 @@ class RuntimeConfig:
     challenge_pack_path: Path | None = None
     challenge_level: str = "basic"
     redacted_config: dict[str, Any] = field(default_factory=dict)
+
+    def __repr__(self) -> str:
+        return (
+            "RuntimeConfig("
+            f"endpoint={self.endpoint!r}, "
+            f"output_path={self.output_path!r}, "
+            f"raw_logs_enabled={self.raw_logs_enabled!r}, "
+            f"raw_log_path={self.raw_log_path!r}, "
+            f"extension_probes={self.extension_probes!r}, "
+            f"challenge_pack_path={self.challenge_pack_path!r}, "
+            f"challenge_level={self.challenge_level!r}, "
+            f"redacted_config={self.redacted_config!r})"
+        )
 
 
 @dataclass(frozen=True)
@@ -201,3 +228,13 @@ class AuditResult:
     redacted_config: dict[str, Any] = field(default_factory=dict)
     extension_probe_results: list[ProbeResult] = field(default_factory=list)
     dynamic_challenge_results: list[DynamicChallengeResult] = field(default_factory=list)
+
+
+def _redacted_headers(headers: dict[str, str]) -> dict[str, str]:
+    redacted = {}
+    for key, value in headers.items():
+        if key.lower() in {"authorization", "x-api-key", "anthropic-api-key"}:
+            redacted[key] = REDACTED
+        else:
+            redacted[key] = value
+    return redacted

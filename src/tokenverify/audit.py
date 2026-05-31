@@ -49,6 +49,7 @@ from tokenverify.probes.openai_compatible import (
 from tokenverify.probes.streaming import evaluate_streaming_features
 from tokenverify.probes.thinking import build_thinking_payload, evaluate_thinking_outcome
 from tokenverify.scoring import score_probe_results
+from tokenverify.security import public_error_summary
 
 
 @dataclass(frozen=True)
@@ -146,7 +147,11 @@ def run_audit(
             )
         )
     if observations.stream_events:
-        probe_results.append(evaluate_streaming_features(observations.stream_events))
+        stream_runtime_error = _stream_runtime_error_before_text(observations.stream_events)
+        if stream_runtime_error:
+            probe_results.insert(0, stream_runtime_error)
+        else:
+            probe_results.append(evaluate_streaming_features(observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
@@ -284,7 +289,11 @@ def _run_openai_compatible_claude_audit(
                 )
             )
     if observations.stream_events:
-        probe_results.append(evaluate_openai_streaming_features(observations.stream_events))
+        stream_runtime_error = _stream_runtime_error_before_text(observations.stream_events)
+        if stream_runtime_error:
+            probe_results.insert(0, stream_runtime_error)
+        else:
+            probe_results.append(evaluate_openai_streaming_features(observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
@@ -417,7 +426,11 @@ def _run_openai_compatible_audit(
             )
         )
     if observations.stream_events:
-        probe_results.append(evaluate_openai_model_streaming_features(observations.stream_events))
+        stream_runtime_error = _stream_runtime_error_before_text(observations.stream_events)
+        if stream_runtime_error:
+            probe_results.insert(0, stream_runtime_error)
+        else:
+            probe_results.append(evaluate_openai_model_streaming_features(observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
@@ -478,7 +491,11 @@ def _run_deepseek_compatible_audit(
             )
         )
     if observations.stream_events:
-        probe_results.append(evaluate_deepseek_streaming_features(runtime_config.endpoint.model, observations.stream_events))
+        stream_runtime_error = _stream_runtime_error_before_text(observations.stream_events)
+        if stream_runtime_error:
+            probe_results.insert(0, stream_runtime_error)
+        else:
+            probe_results.append(evaluate_deepseek_streaming_features(runtime_config.endpoint.model, observations.stream_events))
         _write_raw_logs(runtime_config.raw_log_path, observations.stream_events, runtime_config.raw_logs_enabled)
 
     rating, breakdown, verdict = score_probe_results(probe_results)
@@ -602,3 +619,40 @@ def _write_raw_logs(path: Path | None, events: list[ProviderEvent], enabled: boo
 
 def _host(base_url: str) -> str:
     return base_url.removeprefix("https://").removeprefix("http://").split("/")[0]
+
+
+def _stream_runtime_error_before_text(events: list[ProviderEvent]) -> ProbeResult | None:
+    for event in events:
+        if _event_has_non_empty_text(event):
+            return None
+        if event.event_type in {"auth_error", "network_error", "timeout"}:
+            marker = {
+                "auth_error": "authentication",
+                "network_error": "network",
+                "timeout": "timeout",
+            }[event.event_type]
+            return ProbeResult(
+                "stream_runtime",
+                "error",
+                errors=[f"{marker}: {public_error_summary(event.event_type)}"],
+            )
+    return None
+
+
+def _event_has_non_empty_text(event: ProviderEvent) -> bool:
+    if event.text_length and event.text_length > 0:
+        return True
+    choices = event.data.get("choices")
+    if not isinstance(choices, list):
+        return False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if not isinstance(delta, dict):
+            continue
+        for key in ("reasoning_content", "content"):
+            value = delta.get(key)
+            if isinstance(value, str) and value.strip():
+                return True
+    return False

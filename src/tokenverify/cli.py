@@ -12,6 +12,7 @@ from tokenverify.dynamic_challenges import ChallengePackError
 from tokenverify.audit import run_audit
 from tokenverify.models import Rating
 from tokenverify.report import render_markdown
+from tokenverify.security import public_error_summary
 
 AUDIT_HELP = """Run a TokenVerify audit and write a Markdown report.
 
@@ -102,6 +103,10 @@ def audit(
     except ChallengePackError as exc:
         typer.echo(str(exc))
         raise typer.Exit(2) from exc
+    except Exception as exc:
+        typer.echo("Audit failed before a conclusive result could be produced.")
+        typer.echo(public_error_summary(exc))
+        raise typer.Exit(3) from exc
     markdown = render_markdown(result, language=report_language)
     runtime_config.output_path.parent.mkdir(parents=True, exist_ok=True)
     runtime_config.output_path.write_text(markdown, encoding="utf-8")

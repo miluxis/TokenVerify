@@ -91,7 +91,9 @@ Risk score measures heuristic channel-health and relay-risk symptoms.
 {
   "endpoint": {
     "name": "deepseek-compatible",
-    "base_url": "https://relay.example/v1",
+    "base_url_redacted": "***REDACTED***",
+    "base_url_hash": "889271d70d18282b",
+    "base_url_host": "relay.example",
     "model": "deepseek-r1"
   }
 }

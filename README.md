@@ -203,7 +203,7 @@ Other report fields:
   replace scoring.
 - `Dynamic Challenge Results`: auxiliary local challenge outcomes. Reports show
   only challenge id/category/level/hash/status and sanitized verifier summaries;
-  full challenge prompts, rendered variables, raw model output, and private
+  full challenge prompts, rendered variables, raw model text, and private
   expected answers are not embedded.
 
 ## CLI Exit Codes
