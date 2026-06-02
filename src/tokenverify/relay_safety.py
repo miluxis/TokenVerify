@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Callable, TypeVar
 from urllib.parse import urlparse
 
+from tokenverify.relay_models import RelayAuditConfigError, RelayAuditProfile
 from tokenverify.security import REDACTED, sanitize_public_text
 
 
@@ -14,6 +16,14 @@ class RelayAuditSecurityViolation(RuntimeError):
 
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class RelayLiveAuthorization:
+    live_mode: bool
+    profile: RelayAuditProfile
+    approved_live_path: str
+    network_scope: str
 
 
 def sanitize_to_fqdn(value: object) -> str:
@@ -58,11 +68,45 @@ def sanitize_public_relay_text(value: object) -> str:
     return text
 
 
+def guard_api_key_env_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return text
+    if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", text):
+        raise RelayAuditConfigError(
+            "--api-key-env expects an environment variable name, not a raw secret value."
+        )
+    return text
+
+
+def authorize_relay_live_execution(
+    *,
+    live_mode: bool,
+    profile: RelayAuditProfile,
+    client_factory: Callable[[], T] | None = None,
+) -> RelayLiveAuthorization:
+    if not live_mode:
+        raise RelayAuditSecurityViolation("Network execution blocked: --live flag missing.")
+    if profile != RelayAuditProfile.GENERAL:
+        raise RelayAuditSecurityViolation(
+            "Network execution blocked: live relay path is not opened for this profile."
+        )
+    return RelayLiveAuthorization(
+        live_mode=True,
+        profile=profile,
+        approved_live_path="general_minimal_connectivity",
+        network_scope="single_non_streaming_request",
+    )
+
+
 def enforce_relay_live_gate(
     *,
     live_mode: bool,
     transport_factory: Callable[[], T] | None = None,
 ) -> T | None:
-    if not live_mode:
-        raise RelayAuditSecurityViolation("Network execution blocked: --live flag missing.")
-    raise RelayAuditSecurityViolation("Network execution blocked: relay live probes are not implemented in this milestone.")
+    authorize_relay_live_execution(live_mode=live_mode, profile=RelayAuditProfile.GENERAL)
+    if transport_factory is None:
+        return None
+    return transport_factory()

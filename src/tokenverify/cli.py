@@ -14,9 +14,10 @@ from tokenverify.audit import run_audit
 from tokenverify.models import Rating
 from tokenverify.report import render_markdown
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
+from tokenverify.relay_live import RelayLiveTransportResponse
 from tokenverify.relay_models import RelayAuditConfigError, parse_relay_profile, parse_relay_scenario
 from tokenverify.relay_report import render_relay_markdown
-from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, sanitize_public_relay_text
+from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, guard_api_key_env_name, sanitize_public_relay_text
 from tokenverify.security import public_error_summary
 
 AUDIT_HELP = """Run a TokenVerify audit and write a Markdown report.
@@ -38,7 +39,7 @@ RELAY_AUDIT_HELP = """Run a deterministic TokenVerify Relay Audit fake-run or gu
 Fake-run example:
   tokenverify relay-audit --base-url https://relay.example/v1 --model example-model --profile general --fake-run suspicious
 
-Live execution is blocked in this milestone even when --live is supplied.
+Live execution in this milestone is limited to an approved minimal general connectivity request.
 
 Exit code 0: fake-run verdict pass or suspicious.
 Exit code 1: fake-run verdict fail.
@@ -150,18 +151,23 @@ def relay_audit(
     live: bool = typer.Option(False, "--live"),
 ) -> None:
     try:
+        api_key_env = guard_api_key_env_name(api_key_env)
         relay_profile = parse_relay_profile(profile)
         relay_scenario = parse_relay_scenario(fake_run) if fake_run else None
-        _resolved_api_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
+        resolved_api_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
+        request = RelayAuditRequest(
+            base_url=base_url,
+            model=model,
+            profile=relay_profile,
+            fake_scenario=relay_scenario,
+            pack_path=Path(pack_path) if pack_path else None,
+            live=live,
+            api_key=resolved_api_key,
+        )
+        if live and relay_scenario is None:
+            request = replace(request, live_transport_factory=_default_relay_live_transport_factory(request))
         result = run_relay_audit(
-            RelayAuditRequest(
-                base_url=base_url,
-                model=model,
-                profile=relay_profile,
-                fake_scenario=relay_scenario,
-                pack_path=Path(pack_path) if pack_path else None,
-                live=live,
-            )
+            request
         )
     except RelayAuditConfigError as exc:
         typer.echo(sanitize_public_relay_text(exc))
@@ -183,6 +189,35 @@ def relay_audit(
     exit_code = exit_code_for_relay_verdict(result.verdict)
     if exit_code:
         raise typer.Exit(exit_code)
+
+
+def _default_relay_live_transport_factory(request: RelayAuditRequest):
+    def factory():
+        return _default_relay_live_transport(request)
+
+    return factory
+
+
+def _default_relay_live_transport(request: RelayAuditRequest):
+    import httpx
+
+    def transport(payload):
+        headers = {"Authorization": f"Bearer {request.api_key}"} if request.api_key else {}
+        url = request.base_url.rstrip("/")
+        post_url = url if url.endswith("/chat/completions") else f"{url}/chat/completions"
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(post_url, json=payload, headers=headers)
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        return RelayLiveTransportResponse(
+            status_code=response.status_code,
+            body=body,
+            headers=dict(response.headers),
+        )
+
+    return transport
 
 
 def _exit_code_for_rating(rating: Rating) -> int:

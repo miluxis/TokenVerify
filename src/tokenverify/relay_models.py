@@ -31,6 +31,21 @@ class RelayRiskLevel(str, Enum):
     UNKNOWN = "unknown"
 
 
+class RelayAuditMode(str, Enum):
+    FAKE = "fake"
+    LIVE = "live"
+
+
+class RelayRuntimeCategory(str, Enum):
+    AUTH_ERROR = "auth_error"
+    QUOTA_OR_RATE_LIMIT = "quota_or_rate_limit"
+    TIMEOUT = "timeout"
+    DISCONNECT = "disconnect"
+    NETWORK_ERROR = "network_error"
+    UNSUPPORTED_LIVE_TARGET = "unsupported_live_target"
+    UNKNOWN_RUNTIME_ERROR = "unknown_runtime_error"
+
+
 class RelayRiskCategory(str, Enum):
     PROMPT_INSTRUCTION_LEAKAGE = "prompt_instruction_leakage"
     MESSAGE_REWRITE = "message_rewrite"
@@ -66,6 +81,7 @@ class RelayResult:
     run_id: str
     profile: RelayAuditProfile
     scenario: RelayVerdict
+    mode: RelayAuditMode
     model: str
     endpoint_host: str
     endpoint_hash: str
@@ -76,6 +92,7 @@ class RelayResult:
     evidence: list[RelayEvidence]
     retest_guidance: str
     inconclusive_reason: str | None = None
+    runtime_category: RelayRuntimeCategory | None = None
 
 
 def parse_relay_profile(value: str) -> RelayAuditProfile:

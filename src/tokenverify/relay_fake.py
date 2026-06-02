@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 
 from tokenverify.relay_models import (
+    RelayAuditMode,
     RelayAuditProfile,
     RelayEvidence,
     RelayPackSummary,
@@ -48,6 +49,7 @@ def build_fake_relay_result(
         run_id=run_id,
         profile=profile,
         scenario=scenario,
+        mode=RelayAuditMode.FAKE,
         model=sanitize_public_relay_text(model),
         endpoint_host=endpoint_host,
         endpoint_hash=endpoint_hash,

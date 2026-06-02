@@ -182,7 +182,10 @@ def test_relay_cli_without_fake_run_blocks_network_boundary():
     assert "sk-secret" not in result.output
 
 
-def test_relay_cli_with_live_still_blocks_this_milestone():
+def test_relay_cli_with_live_without_transport_returns_inconclusive_report(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport_factory", lambda request: lambda: None)
+    output_path = tmp_path / "live-inconclusive.md"
+
     result = CliRunner().invoke(
         app,
         [
@@ -194,11 +197,14 @@ def test_relay_cli_with_live_still_blocks_this_milestone():
             "--api-key",
             "sk-secret",
             "--live",
+            "--output",
+            str(output_path),
         ],
     )
 
-    assert result.exit_code == 2
-    assert "not implemented" in result.output
+    assert result.exit_code == 3
+    assert "Relay audit completed with verdict: inconclusive" in result.output
+    assert output_path.exists()
     assert "sk-secret" not in result.output
 
 
@@ -237,3 +243,4 @@ def test_relay_cli_help_documents_fake_run_and_live_gate():
     assert "--profile" in result.output
     assert "--pack-path" in result.output
     assert "--live" in result.output
+    assert "approved minimal general connectivity request" in " ".join(result.output.split())

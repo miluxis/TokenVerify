@@ -91,7 +91,7 @@ def test_run_relay_audit_without_fake_run_blocks_missing_live():
     assert str(exc_info.value) == "Network execution blocked: --live flag missing."
 
 
-def test_run_relay_audit_with_live_still_blocks_this_milestone():
+def test_run_relay_audit_with_live_general_requires_transport_for_live_execution():
     request = RelayAuditRequest(
         base_url="https://api.relay.com/v1",
         model="example-model",
@@ -99,12 +99,64 @@ def test_run_relay_audit_with_live_still_blocks_this_milestone():
         fake_scenario=None,
         pack_path=None,
         live=True,
+        api_key="sk-secret",
+        live_transport_factory=None,
     )
 
-    with pytest.raises(RelayAuditSecurityViolation) as exc_info:
+    result = run_relay_audit(request)
+
+    assert result.verdict == RelayVerdict.INCONCLUSIVE
+    assert result.runtime_category.value == "unsupported_live_target"
+
+
+def test_run_relay_audit_with_live_general_uses_injected_transport():
+    calls = []
+
+    def transport(payload):
+        calls.append(payload)
+        from tokenverify.relay_live import RelayLiveTransportResponse
+
+        return RelayLiveTransportResponse(status_code=200, body={"choices": [{"message": {"content": "ok"}}]})
+
+    request = RelayAuditRequest(
+        base_url="https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag",
+        model="example-model",
+        profile=RelayAuditProfile.GENERAL,
+        fake_scenario=None,
+        pack_path=None,
+        live=True,
+        api_key="sk-secret",
+        live_transport_factory=lambda: transport,
+    )
+
+    result = run_relay_audit(request)
+
+    assert len(calls) == 1
+    assert result.verdict == RelayVerdict.PASS
+    assert result.endpoint_host == "api.relay.com"
+
+
+def test_run_relay_audit_live_unsupported_profile_blocks_before_transport():
+    calls = []
+
+    def transport(payload):
+        calls.append(payload)
+
+    request = RelayAuditRequest(
+        base_url="https://api.relay.com/v1",
+        model="example-model",
+        profile=RelayAuditProfile.STREAMING,
+        fake_scenario=None,
+        pack_path=None,
+        live=True,
+        api_key="sk-secret",
+        live_transport_factory=lambda: transport,
+    )
+
+    with pytest.raises(RelayAuditSecurityViolation):
         run_relay_audit(request)
 
-    assert "not implemented" in str(exc_info.value)
+    assert calls == []
 
 
 def test_exit_code_for_relay_verdict_isolated_from_config_errors():

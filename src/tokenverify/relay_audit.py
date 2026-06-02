@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
 from tokenverify.relay_fake import build_fake_relay_result
+from tokenverify.relay_live import RelayLiveTransport, run_minimal_general_live_check
 from tokenverify.relay_models import (
     RelayAuditConfigError,
     RelayAuditProfile,
@@ -15,7 +16,7 @@ from tokenverify.relay_models import (
     RelayResult,
     RelayVerdict,
 )
-from tokenverify.relay_safety import basename_only, enforce_relay_live_gate
+from tokenverify.relay_safety import authorize_relay_live_execution, basename_only
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,8 @@ class RelayAuditRequest:
     fake_scenario: RelayVerdict | None
     pack_path: Path | None
     live: bool = False
+    api_key: str | None = None
+    live_transport_factory: Callable[[], RelayLiveTransport | None] | None = None
 
 
 def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
@@ -45,8 +48,16 @@ def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
             model=request.model,
             pack_summary=pack_summary,
         )
-    enforce_relay_live_gate(live_mode=request.live)
-    raise AssertionError("relay live gate returned unexpectedly")
+    authorization = authorize_relay_live_execution(live_mode=request.live, profile=request.profile)
+    live_transport = request.live_transport_factory() if request.live_transport_factory else None
+    return run_minimal_general_live_check(
+        authorization=authorization,
+        endpoint=request.base_url,
+        model=request.model,
+        api_key=request.api_key,
+        pack_summary=pack_summary,
+        transport=live_transport,
+    )
 
 
 def load_relay_pack_summary(path: Path | str) -> RelayPackSummary:

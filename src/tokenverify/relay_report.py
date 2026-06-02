@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tokenverify.relay_models import RelayPackSummary, RelayResult
+from tokenverify.relay_models import RelayAuditMode, RelayPackSummary, RelayResult
 from tokenverify.relay_safety import sanitize_public_relay_text
 
 
@@ -34,6 +34,7 @@ def render_relay_markdown(result: RelayResult) -> str:
         "",
         f"- Model: {sanitize_public_relay_text(result.model)}",
         f"- Profile: {result.profile.value}",
+        f"- Mode: {result.mode.value}",
         f"- Endpoint host: {sanitize_public_relay_text(result.endpoint_host)}",
         f"- Endpoint hash: {sanitize_public_relay_text(result.endpoint_hash)}",
         f"- Challenge pack: {_pack_summary_text(result.pack_summary)}",
@@ -43,10 +44,10 @@ def render_relay_markdown(result: RelayResult) -> str:
         "",
         f"- Verdict: **{result.verdict.value}**",
         f"- Risk level: **{result.risk_level.value}**",
-        "",
-        "## Risk Categories",
-        "",
     ]
+    if result.runtime_category:
+        lines.append(f"- Runtime category: {sanitize_public_relay_text(result.runtime_category.value)}")
+    lines.extend(["", "## Risk Categories", ""])
     if result.risk_categories:
         for category in result.risk_categories:
             lines.append(f"- {RISK_LABELS[category.value]} (`{category.value}`)")
@@ -82,11 +83,17 @@ def render_relay_markdown(result: RelayResult) -> str:
             "",
             "## Safety Note",
             "",
-            "Fake-run mode was deterministic and no live network request was made.",
+            _safety_note(result),
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def _safety_note(result: RelayResult) -> str:
+    if result.mode == RelayAuditMode.LIVE:
+        return "Live mode made only the approved minimal general connectivity request."
+    return "Fake-run mode was deterministic and no live network request was made."
 
 
 def _pack_summary_text(summary: RelayPackSummary) -> str:

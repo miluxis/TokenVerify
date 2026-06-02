@@ -2,12 +2,14 @@ import pytest
 
 from tokenverify.relay_models import (
     RelayAuditConfigError,
+    RelayAuditMode,
     RelayAuditProfile,
     RelayEvidence,
     RelayPackSummary,
     RelayResult,
     RelayRiskCategory,
     RelayRiskLevel,
+    RelayRuntimeCategory,
     RelayVerdict,
     parse_relay_profile,
     parse_relay_scenario,
@@ -50,6 +52,7 @@ def test_relay_result_contract_contains_required_public_fields():
         run_id="relay-fake-1234567890ab",
         profile=RelayAuditProfile.GENERAL,
         scenario=RelayVerdict.PASS,
+        mode=RelayAuditMode.FAKE,
         model="example-model",
         endpoint_host="relay.example",
         endpoint_hash="abc123def4567890",
@@ -73,3 +76,45 @@ def test_relay_result_contract_contains_required_public_fields():
     assert result.risk_level == RelayRiskLevel.LOW
     assert result.pack_summary.label == "No Pack"
     assert result.evidence[0].metrics["consistency_score"] == 0.98
+
+
+def test_relay_mode_and_runtime_category_values_are_stable():
+    assert RelayAuditMode.FAKE.value == "fake"
+    assert RelayAuditMode.LIVE.value == "live"
+    assert RelayRuntimeCategory.AUTH_ERROR.value == "auth_error"
+    assert RelayRuntimeCategory.QUOTA_OR_RATE_LIMIT.value == "quota_or_rate_limit"
+    assert RelayRuntimeCategory.TIMEOUT.value == "timeout"
+    assert RelayRuntimeCategory.DISCONNECT.value == "disconnect"
+    assert RelayRuntimeCategory.NETWORK_ERROR.value == "network_error"
+    assert RelayRuntimeCategory.UNSUPPORTED_LIVE_TARGET.value == "unsupported_live_target"
+    assert RelayRuntimeCategory.UNKNOWN_RUNTIME_ERROR.value == "unknown_runtime_error"
+
+
+def test_relay_result_can_record_live_runtime_category():
+    result = RelayResult(
+        run_id="relay-live-1234567890abcdef",
+        profile=RelayAuditProfile.GENERAL,
+        scenario=RelayVerdict.INCONCLUSIVE,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="relay.example",
+        endpoint_hash="abc123def4567890",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.INCONCLUSIVE,
+        risk_level=RelayRiskLevel.UNKNOWN,
+        risk_categories=[RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE],
+        evidence=[
+            RelayEvidence(
+                key="auth_error",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="Provider authentication or authorization error.",
+            )
+        ],
+        retest_guidance="Check credentials, then rerun with --live.",
+        inconclusive_reason="Provider authentication or authorization error.",
+        runtime_category=RelayRuntimeCategory.AUTH_ERROR,
+    )
+
+    assert result.mode == RelayAuditMode.LIVE
+    assert result.runtime_category == RelayRuntimeCategory.AUTH_ERROR

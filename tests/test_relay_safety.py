@@ -69,15 +69,14 @@ def test_live_gate_blocks_without_live_before_transport_creation():
     assert calls == []
 
 
-def test_live_gate_blocks_live_in_this_milestone_before_transport_creation():
+def test_live_gate_allows_live_general_through_compatibility_wrapper():
     calls = []
 
     def transport_factory():
         calls.append("constructed")
         return object()
 
-    with pytest.raises(RelayAuditSecurityViolation) as exc_info:
-        enforce_relay_live_gate(live_mode=True, transport_factory=transport_factory)
+    transport = enforce_relay_live_gate(live_mode=True, transport_factory=transport_factory)
 
-    assert "not implemented" in str(exc_info.value)
-    assert calls == []
+    assert transport is not None
+    assert calls == ["constructed"]
