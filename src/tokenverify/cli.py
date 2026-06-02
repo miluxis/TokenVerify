@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import replace
 from datetime import date
@@ -12,6 +13,10 @@ from tokenverify.dynamic_challenges import ChallengePackError
 from tokenverify.audit import run_audit
 from tokenverify.models import Rating
 from tokenverify.report import render_markdown
+from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
+from tokenverify.relay_models import RelayAuditConfigError, parse_relay_profile, parse_relay_scenario
+from tokenverify.relay_report import render_relay_markdown
+from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, sanitize_public_relay_text
 from tokenverify.security import public_error_summary
 
 AUDIT_HELP = """Run a TokenVerify audit and write a Markdown report.
@@ -26,6 +31,19 @@ Exit code 0: high/medium trust.
 Exit code 1: low trust.
 Exit code 2: configuration error.
 Exit code 3: inconclusive runtime result.
+"""
+
+RELAY_AUDIT_HELP = """Run a deterministic TokenVerify Relay Audit fake-run or guarded live request.
+
+Fake-run example:
+  tokenverify relay-audit --base-url https://relay.example/v1 --model example-model --profile general --fake-run suspicious
+
+Live execution is blocked in this milestone even when --live is supplied.
+
+Exit code 0: fake-run verdict pass or suspicious.
+Exit code 1: fake-run verdict fail.
+Exit code 2: CLI argument, configuration, pack metadata, or live-gate error.
+Exit code 3: fake-run verdict inconclusive.
 """
 
 app = typer.Typer(no_args_is_help=True)
@@ -119,6 +137,54 @@ def audit(
         raise typer.Exit(exit_code)
 
 
+@app.command("relay-audit", help=RELAY_AUDIT_HELP)
+def relay_audit(
+    base_url: str = typer.Option(..., "--base-url"),
+    model: str = typer.Option(..., "--model"),
+    profile: str = typer.Option("general", "--profile"),
+    fake_run: str | None = typer.Option(None, "--fake-run"),
+    output: str | None = typer.Option(None, "--output"),
+    api_key: str | None = typer.Option(None, "--api-key"),
+    api_key_env: str | None = typer.Option(None, "--api-key-env"),
+    pack_path: str | None = typer.Option(None, "--pack-path"),
+    live: bool = typer.Option(False, "--live"),
+) -> None:
+    try:
+        relay_profile = parse_relay_profile(profile)
+        relay_scenario = parse_relay_scenario(fake_run) if fake_run else None
+        _resolved_api_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
+        result = run_relay_audit(
+            RelayAuditRequest(
+                base_url=base_url,
+                model=model,
+                profile=relay_profile,
+                fake_scenario=relay_scenario,
+                pack_path=Path(pack_path) if pack_path else None,
+                live=live,
+            )
+        )
+    except RelayAuditConfigError as exc:
+        typer.echo(sanitize_public_relay_text(exc))
+        raise typer.Exit(2) from exc
+    except RelayAuditSecurityViolation as exc:
+        typer.echo(sanitize_public_relay_text(exc))
+        raise typer.Exit(2) from exc
+    except Exception as exc:
+        typer.echo("Relay audit failed before a public result could be produced.")
+        typer.echo(sanitize_public_relay_text(exc))
+        raise typer.Exit(2) from exc
+
+    output_path = Path(output) if output else _next_available_relay_report_path(model, date.today())
+    markdown = render_relay_markdown(result)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(markdown, encoding="utf-8")
+    typer.echo(f"Wrote relay audit report: {basename_only(output_path)}")
+    typer.echo(f"Relay audit completed with verdict: {result.verdict.value}")
+    exit_code = exit_code_for_relay_verdict(result.verdict)
+    if exit_code:
+        raise typer.Exit(exit_code)
+
+
 def _exit_code_for_rating(rating: Rating) -> int:
     if rating == Rating.LOW_TRUST:
         return 1
@@ -169,6 +235,18 @@ def _next_available_report_path(model: str, today) -> Path:
         if not candidate.exists():
             return candidate
     raise ConfigError("Could not find an available report filename.")
+
+
+def _next_available_relay_report_path(model: str, today) -> Path:
+    model_slug = _slugify_model_name(model)
+    base_path = Path("reports") / f"relay-audit-{model_slug}-{today}.md"
+    if not base_path.exists():
+        return base_path
+    for index in range(2, 1000):
+        candidate = base_path.with_name(f"{base_path.stem}-{index}{base_path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise RelayAuditConfigError("Could not find an available relay report filename.")
 
 
 def _slugify_model_name(model: str) -> str:
