@@ -163,6 +163,61 @@ challenges:
     assert str(tmp_path) not in markdown
 
 
+def test_relay_cli_pack_summary_includes_safe_metadata_and_count(tmp_path):
+    pack_path = tmp_path / "my_private_pack.yaml"
+    pack_path.write_text(
+        """
+id: private-media-pack
+version: "2026.06"
+profiles:
+  - general
+categories:
+  - model_substitution
+challenges:
+  - id: hidden-case-id
+    profile: general
+    category: model_substitution
+    public_intent: "Checks a public relay contract."
+    prompt: "raw prompt must not appear"
+    expected_answer: "private expected answer"
+    verifier: "secret verifier expression"
+""",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "report.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--pack-path",
+            str(pack_path),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "private-media-pack" in markdown
+    assert "2026.06" in markdown
+    assert "Profiles: general" in markdown
+    assert "Categories: model_substitution" in markdown
+    assert "Challenges: 1" in markdown
+    assert "Intent: Checks a public relay contract." in markdown
+    assert "hidden-case-id" not in markdown
+    assert "raw prompt" not in markdown
+    assert "private expected answer" not in markdown
+    assert "secret verifier" not in markdown
+    assert str(tmp_path) not in markdown
+
+
 def test_relay_cli_without_fake_run_blocks_network_boundary():
     result = CliRunner().invoke(
         app,

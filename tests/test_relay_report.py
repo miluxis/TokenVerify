@@ -60,6 +60,37 @@ def test_relay_report_includes_safe_pack_summary_without_private_content():
     assert "/Users" not in markdown
 
 
+def test_relay_report_renders_rich_pack_metadata_without_private_content():
+    result = build_fake_relay_result(
+        profile=RelayAuditProfile.GENERAL,
+        scenario=RelayVerdict.PASS,
+        endpoint="https://relay.example/v1",
+        model="example-model",
+        pack_summary=RelayPackSummary(
+            label="Local Private Pack",
+            pack_hash="a1b2c3d4e5f60708",
+            pack_id="private-media-pack",
+            version="2026.06",
+            basename="my_private_pack.yaml",
+            profiles=["general", "privacy"],
+            categories=["model_substitution", "upstream_error_leakage"],
+            challenge_count=2,
+            public_intents=["Checks a public relay contract."],
+        ),
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "Profiles: general, privacy" in markdown
+    assert "Categories: model_substitution, upstream_error_leakage" in markdown
+    assert "Challenges: 2" in markdown
+    assert "Intent: Checks a public relay contract." in markdown
+    assert "stable-case-001" not in markdown
+    assert "raw prompt" not in markdown
+    assert "private expected answer" not in markdown
+    assert "secret verifier" not in markdown
+
+
 def test_relay_report_inconclusive_section_is_explicit():
     result = build_fake_relay_result(
         profile=RelayAuditProfile.GENERAL,

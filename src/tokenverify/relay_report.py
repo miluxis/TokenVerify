@@ -106,4 +106,12 @@ def _pack_summary_text(summary: RelayPackSummary) -> str:
         parts.append(f"Version: {summary.version}")
     if summary.pack_hash:
         parts.append(f"Hash: {summary.pack_hash}")
+    if summary.profiles:
+        parts.append(f"Profiles: {', '.join(summary.profiles)}")
+    if summary.categories:
+        parts.append(f"Categories: {', '.join(summary.categories)}")
+    if summary.challenge_count:
+        parts.append(f"Challenges: {summary.challenge_count}")
+    for intent in summary.public_intents:
+        parts.append(f"Intent: {intent}")
     return sanitize_public_relay_text(" | ".join(parts))

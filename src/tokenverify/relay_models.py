@@ -74,6 +74,10 @@ class RelayPackSummary:
     pack_id: str | None = None
     version: str | None = None
     basename: str | None = None
+    profiles: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+    challenge_count: int = 0
+    public_intents: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
