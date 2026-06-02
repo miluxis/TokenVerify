@@ -54,8 +54,24 @@ def hash_relay_endpoint(value: object) -> str:
     return hashlib.sha256(str(value).strip().rstrip("/").encode("utf-8")).hexdigest()[:16]
 
 
+def _strip_stream_shells(text: str) -> str:
+    text = re.sub(
+        r"data:\s*\{.*?\}",
+        "[redacted-stream-event]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(
+        r"\{\"choices\".*?\}",
+        "[redacted-stream-event]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return text
+
+
 def sanitize_public_relay_text(value: object) -> str:
-    text = str(value)
+    text = _strip_stream_shells(str(value))
     text = re.sub(r"https?://[^\s`'\"<>]+", lambda match: sanitize_to_fqdn(match.group(0)), text)
     text = re.sub(
         r"(?<!\w)(?:~|/[A-Za-z0-9_.-]+|[A-Za-z]:\\)[^\s`'\"<>]*",
@@ -89,15 +105,26 @@ def authorize_relay_live_execution(
 ) -> RelayLiveAuthorization:
     if not live_mode:
         raise RelayAuditSecurityViolation("Network execution blocked: --live flag missing.")
-    if profile != RelayAuditProfile.GENERAL:
+    approved_paths = {
+        RelayAuditProfile.GENERAL: (
+            "general_minimal_connectivity",
+            "single_non_streaming_request",
+        ),
+        RelayAuditProfile.STREAMING: (
+            "streaming_minimal_sse_integrity",
+            "single_streaming_request",
+        ),
+    }
+    if profile not in approved_paths:
         raise RelayAuditSecurityViolation(
             "Network execution blocked: live relay path is not opened for this profile."
         )
+    approved_live_path, network_scope = approved_paths[profile]
     return RelayLiveAuthorization(
         live_mode=True,
         profile=profile,
-        approved_live_path="general_minimal_connectivity",
-        network_scope="single_non_streaming_request",
+        approved_live_path=approved_live_path,
+        network_scope=network_scope,
     )
 
 

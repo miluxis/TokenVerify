@@ -1,8 +1,12 @@
+import traceback
+
+import pytest
 from typer.testing import CliRunner
 
 import tokenverify.cli as cli_module
 from tokenverify.cli import app
 from tokenverify.relay_live import RelayLiveTransportResponse
+from tokenverify.relay_streaming import RelayStreamEvent
 
 
 def test_relay_cli_live_general_uses_default_transport_factory_after_authorization(tmp_path, monkeypatch):
@@ -143,3 +147,308 @@ def test_relay_cli_api_key_env_guard_blocks_raw_secret_before_other_errors(tmp_p
     assert "--api-key-env expects an environment variable name" in result.output
     assert "sk-or-v1-abcdef" not in result.output
     assert "missing-private.yaml" not in result.output
+
+
+def test_relay_cli_streaming_live_writes_sanitized_report(monkeypatch, tmp_path):
+    touched = False
+
+    def fake_default_stream_factory(request):
+        nonlocal touched
+
+        def factory():
+            nonlocal touched
+            touched = True
+
+            def transport(payload):
+                assert payload["stream"] is True
+                return [
+                    RelayStreamEvent("chat.completion.chunk", 0, True, len("ok"), False, None),
+                    RelayStreamEvent("chat.completion.chunk", 1, False, 0, True, "stop"),
+                ]
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_default_stream_factory)
+    output_path = tmp_path / "stream-report.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?token=secret#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert touched is True
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "Profile: streaming" in markdown
+    assert "stream_event_sequence" in markdown
+    assert "stream_content_delta" in markdown
+    assert "stream_terminal_finish" in markdown
+    assert "chat/completions" not in markdown
+    assert "token=secret" not in markdown
+    assert "data:" not in markdown
+    assert '{"choices"' not in markdown
+
+
+def test_relay_cli_streaming_without_live_exits_2_and_does_not_touch_stream_factory(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_factory(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("stream factory must not be constructed without --live")
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", forbidden_factory)
+    output_path = tmp_path / "blocked.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Network execution blocked: --live flag missing." in result.output
+    assert touched is False
+    assert not output_path.exists()
+
+
+def test_relay_cli_streaming_raw_api_key_env_guard_wins_before_pack_and_stream(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_factory(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("stream factory must not be constructed after raw-secret guard")
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", forbidden_factory)
+    private_pack = tmp_path / "heiyan_studio_private.yaml"
+    private_pack.write_text("id: private\n", encoding="utf-8")
+    output_path = tmp_path / "guarded.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--api-key-env",
+            "sk-or-v1-private-token",
+            "--pack-path",
+            str(private_pack),
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--api-key-env expects an environment variable name" in result.output
+    assert "sk-or-v1-private-token" not in result.output
+    assert "heiyan_studio" not in result.output
+    assert touched is False
+    assert not output_path.exists()
+
+
+def test_relay_cli_streaming_suspicious_exits_0(monkeypatch, tmp_path):
+    def fake_default_stream_factory(request):
+        def factory():
+            def transport(payload):
+                return [
+                    RelayStreamEvent("chat.completion.chunk", 0, True, 4, False, None),
+                    RelayStreamEvent("chat.completion.chunk", 1, True, 4, False, None),
+                    RelayStreamEvent("chat.completion.chunk", 2, True, 4, False, None),
+                    RelayStreamEvent("chat.completion.chunk", 3, True, 4, False, None),
+                    RelayStreamEvent("chat.completion.chunk", 4, True, 4, False, None),
+                    RelayStreamEvent("chat.completion.chunk", 5, False, 0, True, "stop"),
+                ]
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_default_stream_factory)
+    output_path = tmp_path / "suspicious.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Relay audit completed with verdict: suspicious" in result.output
+    assert "synthetic_stream_heuristic" in output_path.read_text(encoding="utf-8")
+
+
+def test_relay_cli_streaming_fail_exits_1(monkeypatch, tmp_path):
+    def fake_default_stream_factory(request):
+        def factory():
+            def transport(payload):
+                return [RelayStreamEvent("chat.completion", 0, False, 0, False, None)]
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_default_stream_factory)
+    output_path = tmp_path / "fail.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Relay audit completed with verdict: fail" in result.output
+    assert "stream_contract_violation" in output_path.read_text(encoding="utf-8")
+
+
+def test_relay_cli_streaming_inconclusive_exits_3(monkeypatch, tmp_path):
+    def fake_default_stream_factory(request):
+        def factory():
+            def transport(payload):
+                raise TimeoutError("gateway timeout with raw stream chunk text must not appear")
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_default_stream_factory)
+    output_path = tmp_path / "inconclusive.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "Relay audit completed with verdict: inconclusive" in result.output
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "timeout" in markdown
+    assert "raw stream chunk text must not appear" not in markdown
+
+
+def test_parse_stream_json_line_decodes_bytes_without_b_prefix():
+    parsed = cli_module._parse_stream_json_line(
+        b'data: {"object": "chat.completion.chunk", "choices": [{"delta": {"content": "ok"}}]}'
+    )
+
+    assert parsed == {
+        "object": "chat.completion.chunk",
+        "choices": [{"delta": {"content": "ok"}}],
+    }
+
+
+def test_parse_stream_json_line_malformed_bytes_error_is_sanitized():
+    with pytest.raises(RuntimeError) as exc_info:
+        cli_module._parse_stream_json_line(
+            b'data: {"choices": [{"delta": {"content": "raw stream chunk text must not appear"}}]\xff'
+        )
+
+    rendered = "".join(
+        traceback.format_exception(
+            type(exc_info.value),
+            exc_info.value,
+            exc_info.value.__traceback__,
+        )
+    )
+    assert "Malformed streaming event envelope." in str(exc_info.value)
+    assert "raw stream chunk text must not appear" not in rendered
+    assert "data:" not in rendered
+    assert '{"choices"' not in rendered
+
+
+def test_relay_cli_streaming_malicious_failure_output_is_sanitized(monkeypatch, tmp_path):
+    def fake_default_stream_factory(request):
+        def factory():
+            def transport(payload):
+                raise RuntimeError(
+                    'data: {"choices": [{"delta": {"content": "raw stream chunk text must not appear"}}]} '
+                    "Authorization: Bearer sk-or-v1-private-token"
+                )
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_default_stream_factory)
+    output_path = tmp_path / "malicious.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?token=secret#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "streaming",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "raw stream chunk text must not appear" not in result.output
+    assert "data:" not in result.output
+    assert '{"choices"' not in result.output
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "raw stream chunk text must not appear" not in markdown
+    assert "data:" not in markdown
+    assert '{"choices"' not in markdown

@@ -1,6 +1,15 @@
 from tokenverify.relay_fake import build_fake_relay_result
 from tokenverify.relay_live import RelayLiveTransportResponse, run_minimal_general_live_check
-from tokenverify.relay_models import RelayAuditProfile, RelayPackSummary, RelayVerdict
+from tokenverify.relay_models import (
+    RelayAuditMode,
+    RelayAuditProfile,
+    RelayEvidence,
+    RelayPackSummary,
+    RelayResult,
+    RelayRiskCategory,
+    RelayRiskLevel,
+    RelayVerdict,
+)
 from tokenverify.relay_report import render_relay_markdown
 from tokenverify.relay_safety import authorize_relay_live_execution
 
@@ -155,3 +164,88 @@ def test_relay_report_renders_sanitized_live_runtime_category():
     assert "https://" not in markdown
     assert "token=secret" not in markdown
     assert "sk-secret" not in markdown
+
+
+def test_streaming_report_safety_note_and_evidence_are_sanitized():
+    result = RelayResult(
+        run_id="relay-stream-test",
+        profile=RelayAuditProfile.STREAMING,
+        scenario=RelayVerdict.SUSPICIOUS,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="api.relay.com",
+        endpoint_hash="abcdef1234567890",
+        pack_summary=RelayPackSummary(
+            label="Local Pack",
+            pack_hash="packhash123",
+            basename="private.yaml",
+            public_intents=["streaming smoke check"],
+        ),
+        verdict=RelayVerdict.SUSPICIOUS,
+        risk_level=RelayRiskLevel.MEDIUM,
+        risk_categories=[RelayRiskCategory.STREAMING_INTEGRITY],
+        evidence=[
+            RelayEvidence(
+                key="synthetic_stream_heuristic",
+                category=RelayRiskCategory.STREAMING_INTEGRITY,
+                status="suspicious",
+                summary=(
+                    "Uniform stream chunks are a heuristic risk indicator, not proof of provider forgery. "
+                    'data: {"choices": [{"delta": {"content": "raw stream chunk text must not appear"}}]}'
+                ),
+                metrics={
+                    "event_count": 6,
+                    "content_delta_count": 5,
+                    "terminal_finish_observed": True,
+                    "uniform_chunk_size_detected": True,
+                    "chunk_count": 5,
+                    "finish_reason": "stop",
+                },
+            )
+        ],
+        retest_guidance="Rerun streaming checks.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "approved minimal streaming/SSE integrity request" in markdown
+    assert "only the approved minimal general connectivity request" not in markdown
+    assert "synthetic_stream_heuristic" in markdown
+    assert "uniform_chunk_size_detected=True" in markdown
+    assert "raw stream chunk text must not appear" not in markdown
+    assert "data:" not in markdown
+    assert '{"choices"' not in markdown
+    assert "private expected answer" not in markdown
+    assert "secret verifier expression" not in markdown
+
+
+def test_streaming_report_strips_multiline_sse_json_shells():
+    result = RelayResult(
+        run_id="relay-stream-test",
+        profile=RelayAuditProfile.STREAMING,
+        scenario=RelayVerdict.INCONCLUSIVE,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="api.relay.com",
+        endpoint_hash="abcdef1234567890",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.INCONCLUSIVE,
+        risk_level=RelayRiskLevel.UNKNOWN,
+        risk_categories=[RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE],
+        evidence=[
+            RelayEvidence(
+                key="unknown_runtime_error",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary='data: {\n  "choices": [{"delta": {"content": "raw stream chunk text must not appear"}}]\n}',
+            )
+        ],
+        retest_guidance="Rerun streaming checks.",
+        inconclusive_reason='{"choices": [\n{"delta": {"content": "raw stream chunk text must not appear"}}\n]}',
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "raw stream chunk text must not appear" not in markdown
+    assert "data:" not in markdown
+    assert '{"choices"' not in markdown

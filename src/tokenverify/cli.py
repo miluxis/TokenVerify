@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import replace
@@ -15,9 +16,10 @@ from tokenverify.models import Rating
 from tokenverify.report import render_markdown
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
 from tokenverify.relay_live import RelayLiveTransportResponse
-from tokenverify.relay_models import RelayAuditConfigError, parse_relay_profile, parse_relay_scenario
+from tokenverify.relay_models import RelayAuditConfigError, RelayAuditProfile, parse_relay_profile, parse_relay_scenario
 from tokenverify.relay_report import render_relay_markdown
 from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, guard_api_key_env_name, sanitize_public_relay_text
+from tokenverify.relay_streaming import RelayStreamEvent, normalize_stream_event
 from tokenverify.security import public_error_summary
 
 AUDIT_HELP = """Run a TokenVerify audit and write a Markdown report.
@@ -39,7 +41,7 @@ RELAY_AUDIT_HELP = """Run a deterministic TokenVerify Relay Audit fake-run or gu
 Fake-run example:
   tokenverify relay-audit --base-url https://relay.example/v1 --model example-model --profile general --fake-run suspicious
 
-Live execution in this milestone is limited to an approved minimal general connectivity request.
+Live execution is limited to approved minimal general connectivity and streaming/SSE integrity paths.
 
 Exit code 0: fake-run verdict pass or suspicious.
 Exit code 1: fake-run verdict fail.
@@ -165,7 +167,13 @@ def relay_audit(
             api_key=resolved_api_key,
         )
         if live and relay_scenario is None:
-            request = replace(request, live_transport_factory=_default_relay_live_transport_factory(request))
+            if relay_profile == RelayAuditProfile.STREAMING:
+                request = replace(
+                    request,
+                    stream_transport_factory=_default_relay_stream_transport_factory(request),
+                )
+            else:
+                request = replace(request, live_transport_factory=_default_relay_live_transport_factory(request))
         result = run_relay_audit(
             request
         )
@@ -218,6 +226,54 @@ def _default_relay_live_transport(request: RelayAuditRequest):
         )
 
     return transport
+
+
+def _default_relay_stream_transport_factory(request: RelayAuditRequest):
+    def factory():
+        return _default_relay_stream_transport(request)
+
+    return factory
+
+
+def _default_relay_stream_transport(request: RelayAuditRequest):
+    import httpx
+
+    def transport(payload):
+        headers = {"Authorization": f"Bearer {request.api_key}"} if request.api_key else {}
+        url = request.base_url.rstrip("/")
+        post_url = url if url.endswith("/chat/completions") else f"{url}/chat/completions"
+        events: list[RelayStreamEvent] = []
+        with httpx.Client(timeout=30.0) as client:
+            with client.stream("POST", post_url, json=payload, headers=headers) as response:
+                response.raise_for_status()
+                index = 0
+                for raw_line in response.iter_lines():
+                    parsed = _parse_stream_json_line(raw_line)
+                    if parsed is None:
+                        continue
+                    events.append(normalize_stream_event(parsed, index=index))
+                    index += 1
+        return events
+
+    return transport
+
+
+def _parse_stream_json_line(raw_line: object) -> dict | None:
+    if isinstance(raw_line, bytes):
+        text = raw_line.decode("utf-8", errors="ignore").strip()
+    else:
+        text = str(raw_line).strip()
+    if not text:
+        return None
+    if text.startswith("data:"):
+        text = text[5:].strip()
+    if text == "[DONE]":
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        raise RuntimeError("Malformed streaming event envelope.") from None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _exit_code_for_rating(rating: Rating) -> int:

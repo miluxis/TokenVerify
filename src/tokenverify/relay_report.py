@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tokenverify.relay_models import RelayAuditMode, RelayPackSummary, RelayResult
+from tokenverify.relay_models import RelayAuditMode, RelayAuditProfile, RelayPackSummary, RelayResult
 from tokenverify.relay_safety import sanitize_public_relay_text
 
 
@@ -92,6 +92,8 @@ def render_relay_markdown(result: RelayResult) -> str:
 
 def _safety_note(result: RelayResult) -> str:
     if result.mode == RelayAuditMode.LIVE:
+        if result.profile == RelayAuditProfile.STREAMING:
+            return "Live mode made only the approved minimal streaming/SSE integrity request."
         return "Live mode made only the approved minimal general connectivity request."
     return "Fake-run mode was deterministic and no live network request was made."
 

@@ -6,6 +6,7 @@ import pytest
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, load_relay_pack_summary, run_relay_audit
 from tokenverify.relay_models import RelayAuditConfigError, RelayAuditProfile, RelayVerdict
 from tokenverify.relay_safety import RelayAuditSecurityViolation
+from tokenverify.relay_streaming import RelayStreamEvent
 
 
 def test_load_relay_pack_summary_hashes_metadata_without_prompt_or_answer_leakage(tmp_path):
@@ -388,11 +389,42 @@ def test_run_relay_audit_with_live_general_uses_injected_transport():
     assert result.endpoint_host == "api.relay.com"
 
 
-def test_run_relay_audit_live_unsupported_profile_blocks_before_transport():
+def test_run_relay_audit_with_live_streaming_uses_injected_stream_transport():
     calls = []
 
     def transport(payload):
         calls.append(payload)
+        return [
+            RelayStreamEvent("chat.completion.chunk", 0, True, 2, False, None),
+            RelayStreamEvent("chat.completion.chunk", 1, False, 0, True, "stop"),
+        ]
+
+    request = RelayAuditRequest(
+        base_url="https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag",
+        model="example-model",
+        profile=RelayAuditProfile.STREAMING,
+        fake_scenario=None,
+        pack_path=None,
+        live=True,
+        api_key="sk-secret",
+        stream_transport_factory=lambda: transport,
+    )
+
+    result = run_relay_audit(request)
+
+    assert len(calls) == 1
+    assert calls[0]["stream"] is True
+    assert result.verdict == RelayVerdict.PASS
+    assert result.profile == RelayAuditProfile.STREAMING
+    assert result.endpoint_host == "api.relay.com"
+
+
+def test_run_relay_audit_streaming_without_live_does_not_touch_stream_transport_factory():
+    calls = []
+
+    def stream_factory():
+        calls.append("factory")
+        raise AssertionError("streaming factory must not be touched without --live")
 
     request = RelayAuditRequest(
         base_url="https://api.relay.com/v1",
@@ -400,9 +432,36 @@ def test_run_relay_audit_live_unsupported_profile_blocks_before_transport():
         profile=RelayAuditProfile.STREAMING,
         fake_scenario=None,
         pack_path=None,
+        live=False,
+        stream_transport_factory=stream_factory,
+    )
+
+    with pytest.raises(RelayAuditSecurityViolation):
+        run_relay_audit(request)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [RelayAuditProfile.SCHEMA, RelayAuditProfile.PRIVACY, RelayAuditProfile.FULL],
+)
+def test_run_relay_audit_live_unsupported_profile_blocks_before_stream_transport(profile):
+    calls = []
+
+    def stream_factory():
+        calls.append("factory")
+        raise AssertionError("streaming factory must not be touched for blocked profiles")
+
+    request = RelayAuditRequest(
+        base_url="https://api.relay.com/v1",
+        model="example-model",
+        profile=profile,
+        fake_scenario=None,
+        pack_path=None,
         live=True,
         api_key="sk-secret",
-        live_transport_factory=lambda: transport,
+        stream_transport_factory=stream_factory,
     )
 
     with pytest.raises(RelayAuditSecurityViolation):

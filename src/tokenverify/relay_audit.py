@@ -15,6 +15,7 @@ from tokenverify.relay_models import (
 )
 from tokenverify.relay_pack import load_relay_pack_summary
 from tokenverify.relay_safety import authorize_relay_live_execution
+from tokenverify.relay_streaming import RelayStreamingTransport, run_minimal_streaming_live_check
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class RelayAuditRequest:
     live: bool = False
     api_key: str | None = None
     live_transport_factory: Callable[[], RelayLiveTransport | None] | None = None
+    stream_transport_factory: Callable[[], RelayStreamingTransport | None] | None = None
 
 
 def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
@@ -47,6 +49,16 @@ def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
             pack_summary=pack_summary,
         )
     authorization = authorize_relay_live_execution(live_mode=request.live, profile=request.profile)
+    if request.profile == RelayAuditProfile.STREAMING:
+        stream_transport = request.stream_transport_factory() if request.stream_transport_factory else None
+        return run_minimal_streaming_live_check(
+            authorization=authorization,
+            endpoint=request.base_url,
+            model=request.model,
+            api_key=request.api_key,
+            pack_summary=pack_summary,
+            transport=stream_transport,
+        )
     live_transport = request.live_transport_factory() if request.live_transport_factory else None
     return run_minimal_general_live_check(
         authorization=authorization,
