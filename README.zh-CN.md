@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-TokenVerify 是一个黑盒 LLM 端点审计 CLI，用来检查一个接口是否符合它声明的 provider、API 形态、模型家族和渠道特征。它会把协议结构、模型字段、推理信号、流式响应指标和中转风险症状整理成 Markdown 报告。
+TokenVerify 是一个黑盒 LLM 端点与中转审计 CLI，用来检查一个接口是否符合它声明的 provider、API 形态、模型家族、渠道特征和中转契约。它会把协议结构、模型字段、推理信号、流式响应指标、schema/tool 保真、隐私泄漏检查和中转风险症状整理成 Markdown 报告。
 
 TokenVerify 不能 100% 证明真实上游是谁。它的目标是发现强矛盾、明显能力降级和渠道风险信号，让用户更容易判断一个端点是否可信。
 
@@ -59,6 +59,40 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 Dynamic challenge 结果只作为辅助证据。报告只展示 challenge id、category、
 level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度评分。
 
+### Relay Audit 快速开始
+
+Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径。它支持
+确定性的 fake-run 演示，也支持经过 `--live` 明确授权的真实检测。当前 profile
+包括 `general`、`streaming`、`schema`、`privacy` 和 `full`。
+
+运行一次不发网络请求的确定性演示：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile general \
+  --fake-run suspicious
+```
+
+只有在你明确要进行真实测评时才加 `--live`：
+
+```bash
+export RELAY_API_KEY="your-relay-key"
+
+PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile full \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Relay 报告只展示 host-only endpoint 和 public endpoint hash，不展示完整
+prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有 challenge
+答案。普通用户本地测评流程见：
+[`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md)。
+
 ## 支持的检测路径
 
 | 路径 | 示例配置 | 检查内容 |
@@ -67,11 +101,12 @@ level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度�
 | OpenAI 兼容 Claude 中转 | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions 结构、Claude 模型声明一致性、Claude thinking/version 线索、reasoning 泄漏、中转与渠道风险症状。 |
 | OpenAI 兼容 OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI 风格 Chat Completions、模型家族一致性、reasoning 能力证据、stream 序列、官方/兼容渠道线索。 |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek 模型家族一致性、R1 `reasoning_content`、reasoning/content 流式顺序、官方/兼容渠道线索。 |
+| Relay Audit CLI | `tokenverify relay-audit` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏和 full 组合报告。 |
 
 当前刻意不做的范围：
 
-- Gemini、Seed、Qwen、Doubao 等 provider audit，除非先有 spec 和 implementation plan。
-- JSON 输出、dashboard UI、批量 endpoint 执行、tokenizer 精确匹配审计。
+- Gemini、Seed、Qwen、Doubao 等 provider audit 属于 future backlog，除非先有 spec 和 implementation plan。
+- JSON 输出、dashboard UI、批量 endpoint 执行、商业私有 pack 治理和 tokenizer 精确匹配审计属于 future backlog。
 - 单次 timeout、断连或 TTFT 尖峰不会被当作渠道作弊证明，只会作为运行异常或弱风险线索。
 - Dynamic challenge pack 是本地确定性探针，不是对未支持模型家族的 provider-specific audit。
 
@@ -187,6 +222,14 @@ pack 不会被当作 Python 代码执行。
 
 无 key 或离线路径不会发送真实 provider 请求。它会生成 `Inconclusive` 报告并返回退出码 `3`。
 
+`tokenverify relay-audit` 会先写出脱敏 Markdown 报告，再返回 Relay Audit
+退出码：
+
+- `0`：relay audit 完成，verdict 为 `pass` 或 `suspicious`。
+- `1`：relay audit 完成，verdict 为 `fail`。
+- `2`：CLI 参数、配置、pack metadata 或 live-gate 错误。
+- `3`：relay audit 完成，但 verdict 为 `inconclusive`。
+
 ## 安全与隐私
 
 - 默认测试套件不会发送真实公网请求。
@@ -194,6 +237,8 @@ pack 不会被当作 Python 代码执行。
 - Probe 测试使用 mock observations 或本地 no-key 路径。
 - Real-network 测试是 opt-in，并标记为 `real_network`。
 - 报告和 raw log 会脱敏配置中的 API key。
+- Relay Audit 公开报告不会展示完整 prompt 文本、模型响应文本、header 值、
+  完整 endpoint path/query/fragment、本地绝对路径或私有 challenge answer。
 - 不要在 issue 中发布 API key、raw event log 或客户机密。
 
 ## 开发

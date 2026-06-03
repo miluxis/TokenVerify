@@ -18,6 +18,7 @@ reports/
 
 # Local planning/spec work materials.
 docs/superpowers/
+TODO.md
 
 !examples/reports/
 !examples/reports/*.md

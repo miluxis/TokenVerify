@@ -2,10 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-TokenVerify is a black-box audit CLI for checking whether an LLM endpoint
-behaves like its claimed provider, API shape, model family, and channel. It
-turns protocol behavior, model fields, reasoning signals, streaming metrics, and
-relay symptoms into a human-readable Markdown report.
+TokenVerify is a black-box audit CLI for checking whether an LLM endpoint or
+relay behaves like its claimed provider, API shape, model family, channel, and
+relay contract. It turns protocol behavior, model fields, reasoning signals,
+streaming metrics, schema/tool preservation, privacy leakage checks, and relay
+symptoms into a human-readable Markdown report.
 
 TokenVerify does not prove the true upstream provider with certainty. It is
 designed to find strong contradictions, obvious capability downgrades, and
@@ -69,6 +70,40 @@ Dynamic challenge results are auxiliary. They appear in the report as sanitized
 challenge id, category, level, hash, status, and verifier summaries, and do not
 change the hard-fail authenticity scoring.
 
+### Relay Audit Quick Start
+
+Relay Audit is the focused CLI product path for auditing OpenAI-compatible relay
+endpoints. It supports deterministic fake runs and guarded live checks across
+`general`, `streaming`, `schema`, `privacy`, and `full` profiles.
+
+Run a deterministic no-network demo:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile general \
+  --fake-run suspicious
+```
+
+Run a real live check only when you explicitly opt in:
+
+```bash
+export RELAY_API_KEY="your-relay-key"
+
+PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile full \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Relay reports show only host-level endpoint text and a public endpoint hash.
+They do not print full prompt text, model response text, header values, full URLs, API
+keys, or private challenge answers. See the local measurement guide:
+[`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md).
+
 ## Supported Audit Paths
 
 | Path | Example config | What it checks |
@@ -77,13 +112,14 @@ change the hard-fail authenticity scoring.
 | OpenAI-compatible Claude relay | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions shape, Claude model claim consistency, Claude thinking/version clues, reasoning leakage, relay and channel-risk symptoms. |
 | OpenAI-compatible OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, official-vs-compatible channel clues. |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek model-family consistency, R1 `reasoning_content`, reasoning/content stream order, official-vs-compatible channel clues. |
+| Relay Audit CLI | `tokenverify relay-audit` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, and full composite reporting. |
 
 Current intentional boundaries:
 
-- Gemini, Seed, Qwen, Doubao, and other provider audits are not implemented
-  until there is a spec and implementation plan.
-- JSON output, dashboard UI, batch endpoint execution, and tokenizer exact-match
-  auditing are out of scope for the current CLI.
+- Gemini, Seed, Qwen, Doubao, and other provider audits are future backlog until
+  there is a spec and implementation plan.
+- JSON output, dashboard UI, batch endpoint execution, commercial challenge-pack
+  governance, and tokenizer exact-match auditing are future backlog.
 - A single timeout, disconnect, or TTFT spike is treated as an operational
   anomaly, not proof of routing misconduct.
 - Dynamic challenge packs are local deterministic probes, not provider-specific
@@ -220,6 +256,14 @@ No-key or offline paths do not send a real provider request. They produce an
 `Inconclusive` report and return exit code `3`; check the report for API key,
 network, quota, or unsupported-target details.
 
+`tokenverify relay-audit` writes a sanitized Markdown report before returning a
+relay-audit exit code:
+
+- `0`: relay audit completed with verdict `pass` or `suspicious`.
+- `1`: relay audit completed with verdict `fail`.
+- `2`: CLI argument, configuration, pack metadata, or live-gate error.
+- `3`: relay audit completed with verdict `inconclusive`.
+
 ## Safety and Privacy
 
 - No live network requests are made by the default test suite.
@@ -227,6 +271,9 @@ network, quota, or unsupported-target details.
 - Probe tests use mock observations or local no-key paths.
 - Real-network tests are opt-in and marked `real_network`.
 - Reports and raw logs redact configured API keys.
+- Relay Audit public reports hide full prompt text, model response text, header values,
+  full endpoint paths/query/fragment, local absolute paths, and private challenge
+  answers.
 - Do not publish API keys, raw event logs, or customer secrets in issues.
 
 ## Development
@@ -271,6 +318,14 @@ src/tokenverify/
   dynamic_challenges.py       # Local deterministic challenge packs and verifiers
   challenge_baseline.yaml     # Built-in public baseline challenge pack
   models.py                   # Shared dataclasses, verdicts, ratings, tags
+  relay_audit.py              # Relay Audit orchestration
+  relay_live.py               # Minimal general live relay check
+  relay_streaming.py          # Streaming/SSE relay profile
+  relay_schema.py             # Schema/tool relay profile
+  relay_privacy.py            # Privacy leakage relay profile
+  relay_full.py               # Full composite relay profile
+  relay_report.py             # Sanitized Relay Audit Markdown report
+  relay_safety.py             # Live gate, URL/path washing, relay sanitizers
   providers/                 # Anthropic, OpenAI-compatible, OpenAI adapters
   probes/                    # Provider probes and streaming heuristics
   report.py                   # Markdown report rendering
