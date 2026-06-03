@@ -2,6 +2,15 @@
 
 TokenVerify audits whether an endpoint behaves like its claimed provider, API shape, and model family. It writes a Markdown report and exits with a script-friendly status code.
 
+## Choose The Command
+
+| Command | Use this when |
+| --- | --- |
+| `tokenverify audit` | You want provider/model-family authenticity, compatibility, reasoning, and channel-risk analysis. |
+| `tokenverify relay-audit` | You want relay contract checks such as streaming integrity, schema/tool preservation, privacy leakage, and sanitized public reporting. |
+
+`audit` and `relay-audit` are intentionally separate in the current release because they use different evidence models, exit semantics, and report contracts. `audit` is the broader provider/model authenticity path. `relay-audit` is the narrower relay safety and contract path.
+
 ## Claude Native
 
 Use this path when the endpoint claims Anthropic native Messages API behavior.
@@ -89,6 +98,35 @@ are `exact_answer`, `required_field`, `forbidden_field`, `json_schema`, and
 Challenge variables are generated from stable local inputs, including pack id,
 pack version, challenge id, variable name, and endpoint name. Expression
 verification uses an allowlisted AST parser, not Python `eval()`.
+
+## Relay Audit
+
+Use `relay-audit` when your main question is not "is this endpoint really the claimed provider?" but "is this relay preserving the contract it should preserve?"
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile full \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Relay Audit profiles for ordinary users:
+
+| Profile | Use this when |
+| --- | --- |
+| `general` | You want a basic compatibility and reachability check before deeper work. |
+| `streaming` | You care whether streaming feels complete and not obviously synthetic. |
+| `schema` | You rely on tool calling or JSON structure and want to see whether the relay preserves it. |
+| `privacy` | You care about prompt leakage symptoms, message rewrite, or upstream disclosure behavior. |
+| `full` | You want one combined relay report for comparison, filing, or public sharing. |
+
+Current Relay Audit boundaries:
+
+- No billing or money-spent estimation.
+- No 8-cycle repeated full-profile deep audit in the current release.
+- Public relay reports hide full prompt text, model response text, header values, full URLs, local absolute paths, and private challenge answers.
 
 ## No-Key / Offline Behavior
 

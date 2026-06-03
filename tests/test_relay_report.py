@@ -41,6 +41,31 @@ def test_relay_report_renders_required_sections_and_sanitized_endpoint():
     assert "#frag" not in markdown
 
 
+def test_relay_report_supports_chinese_language():
+    result = build_fake_relay_result(
+        profile=RelayAuditProfile.GENERAL,
+        scenario=RelayVerdict.SUSPICIOUS,
+        endpoint="https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag",
+        model="example-model",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+    )
+
+    markdown = render_relay_markdown(result, language="zh")
+
+    assert "# TokenVerify Relay Audit Report" in markdown
+    assert "通俗摘要" in markdown
+    assert "目标摘要" in markdown
+    assert "Relay 结论" in markdown
+    assert "风险类别" in markdown
+    assert "脱敏证据" in markdown
+    assert "复测建议" in markdown
+    assert "Fake-run 为确定性演示，未发送真实网络请求。" in markdown
+    assert "api.relay.com" in markdown
+    assert "https://" not in markdown
+    assert "/v1" not in markdown
+    assert "heiyan_studio" not in markdown
+
+
 def test_relay_report_includes_safe_pack_summary_without_private_content():
     result = build_fake_relay_result(
         profile=RelayAuditProfile.GENERAL,

@@ -104,6 +104,23 @@ They do not print full prompt text, model response text, header values, full URL
 keys, or private challenge answers. See the local measurement guide:
 [`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md).
 
+## Which Command Should I Use?
+
+| Command | Ordinary user scenario |
+| --- | --- |
+| `tokenverify audit` | You want to know whether an endpoint behaves like its claimed provider/model family, and whether its reasoning, channel, or compatibility story looks credible. |
+| `tokenverify relay-audit` | You already know this is a relay or suspect relay behavior, and you want to check contract integrity, streaming quality, schema/tool preservation, privacy leakage, and public-report safety. |
+
+## Relay Audit Profiles For Ordinary Users
+
+| Profile | Ordinary user scenario |
+| --- | --- |
+| `general` | Use this first to confirm the relay is basically reachable and returns a compatible response envelope. |
+| `streaming` | Use this when you care whether typing-style streaming looks stable, complete, and not obviously synthetic. |
+| `schema` | Use this when your workload depends on tool calling, function calling, or JSON structure that must survive the relay unchanged. |
+| `privacy` | Use this when you worry about prompt leakage, hidden instruction echo, message rewrite, or upstream error disclosure. |
+| `full` | Use this when you want one combined report for record-keeping, comparison, or public presentation. |
+
 ## Supported Audit Paths
 
 | Path | Example config | What it checks |
@@ -124,6 +141,8 @@ Current intentional boundaries:
   anomaly, not proof of routing misconduct.
 - Dynamic challenge packs are local deterministic probes, not provider-specific
   audits for unsupported model families.
+- Relay Audit does not estimate billing or money spent.
+- Relay Audit does not run an 8-cycle repeated full-profile deep audit in the current release.
 
 ## Configuration
 

@@ -147,6 +147,7 @@ def relay_audit(
     profile: str = typer.Option("general", "--profile"),
     fake_run: str | None = typer.Option(None, "--fake-run"),
     output: str | None = typer.Option(None, "--output"),
+    language: str = typer.Option("en", "--language"),
     api_key: str | None = typer.Option(None, "--api-key"),
     api_key_env: str | None = typer.Option(None, "--api-key-env"),
     pack_path: str | None = typer.Option(None, "--pack-path"),
@@ -154,6 +155,7 @@ def relay_audit(
 ) -> None:
     try:
         api_key_env = guard_api_key_env_name(api_key_env)
+        report_language = _normalize_language(language)
         relay_profile = parse_relay_profile(profile)
         relay_scenario = parse_relay_scenario(fake_run) if fake_run else None
         resolved_api_key = api_key or (os.environ.get(api_key_env) if api_key_env else None)
@@ -207,7 +209,7 @@ def relay_audit(
         raise typer.Exit(2) from exc
 
     output_path = Path(output) if output else _next_available_relay_report_path(model, date.today())
-    markdown = render_relay_markdown(result)
+    markdown = render_relay_markdown(result, language=report_language)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     typer.echo(f"Wrote relay audit report: {basename_only(output_path)}")

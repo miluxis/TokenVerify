@@ -93,6 +93,23 @@ prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有
 答案。普通用户本地测评流程见：
 [`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md)。
 
+## 我该用哪个命令？
+
+| 命令 | 普通用户场景 |
+| --- | --- |
+| `tokenverify audit` | 你想判断一个端点是否真的像它声称的 provider / model family，并检查 reasoning、渠道和兼容性是否可信。 |
+| `tokenverify relay-audit` | 你已经知道这是中转，或者你怀疑它是中转，想重点检查 relay contract、streaming、schema/tool 保真、隐私泄漏和公开报告安全性。 |
+
+## Relay Audit Profile 的普通用户场景
+
+| Profile | 普通用户场景 |
+| --- | --- |
+| `general` | 先确认这个 relay 能不能基本正常返回兼容包络。 |
+| `streaming` | 当你关心打字机式流输出是否稳定、完整、不像伪流式时使用。 |
+| `schema` | 当你的工作流依赖 tool calling、function calling 或 JSON 结构，而且你不希望 relay 把结构弄坏时使用。 |
+| `privacy` | 当你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露时使用。 |
+| `full` | 当你要一次性生成综合报告，用于留档、对比或公开展示时使用。 |
+
 ## 支持的检测路径
 
 | 路径 | 示例配置 | 检查内容 |
@@ -109,6 +126,8 @@ prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有
 - JSON 输出、dashboard UI、批量 endpoint 执行、商业私有 pack 治理和 tokenizer 精确匹配审计属于 future backlog。
 - 单次 timeout、断连或 TTFT 尖峰不会被当作渠道作弊证明，只会作为运行异常或弱风险线索。
 - Dynamic challenge pack 是本地确定性探针，不是对未支持模型家族的 provider-specific audit。
+- Relay Audit 当前不做计费金额或账单估算。
+- Relay Audit 当前不做 8 次 full profile 深度循环。
 
 ## 配置
 

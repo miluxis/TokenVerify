@@ -61,6 +61,51 @@ def test_relay_cli_live_general_uses_default_transport_factory_after_authorizati
     assert "sk-secret" not in markdown
 
 
+def test_relay_cli_live_general_supports_zh_report_language(tmp_path, monkeypatch):
+    def fake_default_transport(request):
+        def transport(payload):
+            return RelayLiveTransportResponse(
+                status_code=200,
+                body={"choices": [{"message": {"content": "ok"}}]},
+            )
+
+        return transport
+
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport", fake_default_transport)
+    output_path = tmp_path / "live-report-zh.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "general",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--language",
+            "zh",
+            "--output",
+            str(output_path),
+        ],
+        env={"RELAY_API_KEY": "sk-secret"},
+    )
+
+    assert result.exit_code == 0
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "通俗摘要" in markdown
+    assert "目标摘要" in markdown
+    assert "Relay 结论" in markdown
+    assert "复测建议" in markdown
+    assert "https://" not in markdown
+    assert "/v1" not in markdown
+    assert "heiyan_studio" not in markdown
+
+
 def test_relay_cli_without_live_does_not_call_default_transport_factory(monkeypatch):
     calls = []
 

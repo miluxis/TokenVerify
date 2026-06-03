@@ -4,6 +4,15 @@
 
 Relay Audit 是黑盒契约检测工具。它能发现明显的中转风险、schema/tool 改写、streaming 异常、隐私泄漏和运行不稳定信号，但不能 100% 证明真实上游是谁，也不能把单次超时或断连当作作弊证据。
 
+## 0. 先选命令
+
+| 命令 | 适合的普通用户问题 |
+| --- | --- |
+| `tokenverify audit` | 这个端点到底像不像它声称的 provider / model，reasoning 和渠道特征是否可信？ |
+| `tokenverify relay-audit` | 这个中转层有没有改写、截断、泄漏、伪流式、破坏 schema，是否适合公开对比？ |
+
+当前版本把两个命令分开，是因为它们的证据模型、退出码语义和报告合同不同。`audit` 更像 provider/model 真实性审计，`relay-audit` 更像 relay 契约和安全审计。
+
 ## 1. 准备环境
 
 在项目根目录安装：
@@ -60,6 +69,16 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 没有 `--live` 时，即使你传了 endpoint、model 和 key，也不会发送真实网络请求。
 
 ## 4. 选择测评 profile
+
+普通用户场景表：
+
+| Profile | 普通用户场景 |
+| --- | --- |
+| `general` | 先确认这个 relay 能不能正常返回兼容包络。 |
+| `streaming` | 你关心流式输出是否稳定、完整、不像伪流式。 |
+| `schema` | 你依赖 tool calling、function calling 或 JSON 结构，不希望 relay 把结构弄坏。 |
+| `privacy` | 你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露。 |
+| `full` | 你要一次性生成综合报告，用于留档、对比或公开展示。 |
 
 ### general
 
@@ -243,6 +262,11 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 ### full 很慢怎么办？
 
 `full` 是串行组合 profile。目标 relay 慢或不可用时，多个子检查的超时会叠加。可以先分别跑 `general`、`streaming`、`schema`、`privacy` 定位问题。
+
+当前不会做的事情：
+
+- 不做计费金额或账单估算。
+- 不做 8 次 full profile 深度循环。
 
 ### 报告里为什么没有原始模型回答？
 
