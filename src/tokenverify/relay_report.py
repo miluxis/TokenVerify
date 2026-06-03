@@ -94,6 +94,8 @@ def _safety_note(result: RelayResult) -> str:
     if result.mode == RelayAuditMode.LIVE:
         if result.profile == RelayAuditProfile.STREAMING:
             return "Live mode made only the approved minimal streaming/SSE integrity request."
+        if result.profile == RelayAuditProfile.SCHEMA:
+            return "Live mode made only the approved minimal schema/tool preservation request."
         return "Live mode made only the approved minimal general connectivity request."
     return "Fake-run mode was deterministic and no live network request was made."
 

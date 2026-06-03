@@ -301,3 +301,4 @@ def test_relay_cli_help_documents_fake_run_and_live_gate():
     compact_output = " ".join(result.output.split())
     assert "approved minimal general connectivity" in compact_output
     assert "streaming/SSE integrity" in compact_output
+    assert "schema/tool preservation" in compact_output

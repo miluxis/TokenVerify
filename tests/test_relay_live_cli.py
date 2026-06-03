@@ -452,3 +452,179 @@ def test_relay_cli_streaming_malicious_failure_output_is_sanitized(monkeypatch, 
     assert "raw stream chunk text must not appear" not in markdown
     assert "data:" not in markdown
     assert '{"choices"' not in markdown
+
+
+def test_relay_cli_schema_live_writes_sanitized_report(monkeypatch, tmp_path):
+    touched = False
+
+    def fake_default_schema_factory(request):
+        def factory():
+            nonlocal touched
+            touched = True
+
+            def transport(payload):
+                assert payload["tool_choice"]["function"]["name"] == "tv_schema_echo"
+                return RelayLiveTransportResponse(
+                    status_code=200,
+                    body={
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls",
+                                "message": {
+                                    "tool_calls": [
+                                        {
+                                            "type": "function",
+                                            "function": {
+                                                "name": "tv_schema_echo",
+                                                "arguments": '{"item_count":2,"status":"ok"}',
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                )
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", fake_default_schema_factory)
+    output_path = tmp_path / "schema-report.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?token=secret#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "schema",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert touched is True
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "Profile: schema" in markdown
+    assert "schema_tool_envelope" in markdown
+    assert "schema_required_keys" in markdown
+    assert "chat/completions" not in markdown
+    assert "token=secret" not in markdown
+    assert '{"tool_calls"' not in markdown
+    assert "raw schema argument must not appear" not in markdown
+
+
+def test_relay_cli_schema_without_live_exits_2_and_does_not_touch_schema_factory(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_factory(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("schema factory must not be constructed without --live")
+
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", forbidden_factory)
+    output_path = tmp_path / "blocked.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "schema",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Network execution blocked: --live flag missing." in result.output
+    assert touched is False
+    assert not output_path.exists()
+
+
+def test_relay_cli_schema_raw_api_key_env_guard_wins_before_pack_and_transport(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_factory(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("schema factory must not be constructed after raw-secret guard")
+
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", forbidden_factory)
+    private_pack = tmp_path / "heiyan_studio_private.yaml"
+    private_pack.write_text("id: private\n", encoding="utf-8")
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "schema",
+            "--api-key-env",
+            "sk-or-v1-private-token",
+            "--pack-path",
+            str(private_pack),
+            "--live",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--api-key-env expects an environment variable name" in result.output
+    assert "sk-or-v1-private-token" not in result.output
+    assert "heiyan_studio" not in result.output
+    assert touched is False
+
+
+def test_relay_cli_schema_malicious_failure_output_is_sanitized(monkeypatch, tmp_path):
+    def fake_default_schema_factory(request):
+        def factory():
+            def transport(payload):
+                raise RuntimeError(
+                    '{\\\\\\"tool_calls\\\\\\": [{\\\\\\"function\\\\\\": {\\\\\\"arguments\\\\\\": \\\\\\"{\\\\\\\\\\\\\\"secret\\\\\\\\\\\\\\":\\\\\\\\\\\\\\"raw schema argument must not appear\\\\\\\\\\\\\\"}\\\\\\"}}]} '
+                    "Authorization: Bearer sk-or-v1-private-token"
+                )
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", fake_default_schema_factory)
+    output_path = tmp_path / "malicious-schema.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?token=secret#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "schema",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 3
+    assert "raw schema argument must not appear" not in result.output
+    assert '{"tool_calls"' not in result.output
+    assert "{\\\\\\\"tool_calls\\\\\\\"" not in result.output
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "raw schema argument must not appear" not in markdown
+    assert '{"tool_calls"' not in markdown
+    assert "{\\\\\\\"tool_calls\\\\\\\"" not in markdown

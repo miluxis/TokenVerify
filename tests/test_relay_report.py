@@ -249,3 +249,38 @@ def test_streaming_report_strips_multiline_sse_json_shells():
     assert "raw stream chunk text must not appear" not in markdown
     assert "data:" not in markdown
     assert '{"choices"' not in markdown
+
+
+def test_schema_report_safety_note_and_evidence_are_sanitized():
+    result = RelayResult(
+        run_id="relay-schema-test",
+        profile=RelayAuditProfile.SCHEMA,
+        scenario=RelayVerdict.SUSPICIOUS,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="api.relay.com",
+        endpoint_hash="abcdef1234567890",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.SUSPICIOUS,
+        risk_level=RelayRiskLevel.MEDIUM,
+        risk_categories=[RelayRiskCategory.SCHEMA_TOOL_REWRITE],
+        evidence=[
+            RelayEvidence(
+                key="schema_extra_keys",
+                category=RelayRiskCategory.SCHEMA_TOOL_REWRITE,
+                status="suspicious",
+                summary='{"tool_calls": [{"function": {"arguments": "{\\"secret\\":\\"raw schema argument must not appear\\"}"}}]}',
+                metrics={"unexpected_key_count": 1, "hybrid_content_observed": True},
+            )
+        ],
+        retest_guidance="Rerun schema checks.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "approved minimal schema/tool preservation request" in markdown
+    assert "schema_extra_keys" in markdown
+    assert "unexpected_key_count=1" in markdown
+    assert "raw schema argument must not appear" not in markdown
+    assert '{"tool_calls"' not in markdown
+    assert "function.arguments" not in markdown

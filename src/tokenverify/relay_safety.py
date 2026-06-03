@@ -70,8 +70,32 @@ def _strip_stream_shells(text: str) -> str:
     return text
 
 
+def _strip_schema_shells(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(
+        r"\{[\s\S]*?\\*[\"']tool_calls\\*[\"'][\s\S]*?\}",
+        "[redacted-schema-shell]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(
+        r"\{[\s\S]*?\\*[\"']function\\*[\"'][\s\S]*?\\*[\"']arguments\\*[\"'][\s\S]*?\}",
+        "[redacted-schema-shell]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(
+        r"\{[\s\S]*?function\.arguments[\s\S]*?\}",
+        "[redacted-schema-shell]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return text
+
+
 def sanitize_public_relay_text(value: object) -> str:
-    text = _strip_stream_shells(str(value))
+    text = _strip_schema_shells(_strip_stream_shells(str(value)))
     text = re.sub(r"https?://[^\s`'\"<>]+", lambda match: sanitize_to_fqdn(match.group(0)), text)
     text = re.sub(
         r"(?<!\w)(?:~|/[A-Za-z0-9_.-]+|[A-Za-z]:\\)[^\s`'\"<>]*",
@@ -113,6 +137,10 @@ def authorize_relay_live_execution(
         RelayAuditProfile.STREAMING: (
             "streaming_minimal_sse_integrity",
             "single_streaming_request",
+        ),
+        RelayAuditProfile.SCHEMA: (
+            "schema_minimal_tool_preservation",
+            "single_schema_tool_request",
         ),
     }
     if profile not in approved_paths:

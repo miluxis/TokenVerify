@@ -101,10 +101,30 @@ def test_authorization_allows_streaming_live_without_touching_factory():
     assert calls == []
 
 
+def test_authorization_allows_schema_live_without_touching_factory():
+    calls = []
+
+    def client_factory():
+        calls.append("client")
+
+    auth = authorize_relay_live_execution(
+        live_mode=True,
+        profile=RelayAuditProfile.SCHEMA,
+        client_factory=client_factory,
+    )
+
+    assert auth == RelayLiveAuthorization(
+        live_mode=True,
+        profile=RelayAuditProfile.SCHEMA,
+        approved_live_path="schema_minimal_tool_preservation",
+        network_scope="single_schema_tool_request",
+    )
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "profile",
     [
-        RelayAuditProfile.SCHEMA,
         RelayAuditProfile.PRIVACY,
         RelayAuditProfile.FULL,
     ],
