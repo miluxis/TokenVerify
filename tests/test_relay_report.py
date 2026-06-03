@@ -284,3 +284,84 @@ def test_schema_report_safety_note_and_evidence_are_sanitized():
     assert "raw schema argument must not appear" not in markdown
     assert '{"tool_calls"' not in markdown
     assert "function.arguments" not in markdown
+
+
+def test_full_profile_report_includes_runtime_notice_and_sanitizes_mixed_shells():
+    result = RelayResult(
+        run_id="relay-full-test",
+        profile=RelayAuditProfile.FULL,
+        scenario=RelayVerdict.SUSPICIOUS,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="relay.example",
+        endpoint_hash="abcd1234abcd1234",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.SUSPICIOUS,
+        risk_level=RelayRiskLevel.MEDIUM,
+        risk_categories=[RelayRiskCategory.SCHEMA_TOOL_REWRITE],
+        evidence=[
+            RelayEvidence(
+                key="full_profile_runtime_cost_notice",
+                category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+                status="notice",
+                summary="Full profile uses multiple approved checks and may use more live requests than a single profile.",
+                metrics={
+                    "planned_live_request_count": 4,
+                    "completed_live_request_count": 4,
+                    "private_pack_executed": False,
+                    "leaky": 'data: {"choices": [{"delta": {"content": "raw stream chunk must not appear"}}]} {"tool_calls": [{"function": {"arguments": "raw schema args must not appear"}}]} {"messages": [{"role": "system", "content": "TV_PRIVACY_MARKER_DO_NOT_ECHO"}]} {"error": {"message": "raw upstream provider error must not appear"}}',
+                },
+            )
+        ],
+        retest_guidance="Rerun full profile after resolving any inconclusive subprofile runtime causes.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "Full profile uses multiple approved checks" in markdown
+    assert "Serial execution can make timeout delays add up across subprofiles" in markdown
+    assert "planned_live_request_count" in markdown
+    assert "raw stream chunk must not appear" not in markdown
+    assert "raw schema args must not appear" not in markdown
+    assert "TV_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
+    assert "raw upstream provider error must not appear" not in markdown
+    assert '{"tool_calls"' not in markdown
+    assert '{"messages"' not in markdown
+    assert 'data: {"choices"' not in markdown
+    assert '{"error"' not in markdown
+
+
+def test_full_profile_report_redacts_privacy_canary_case_and_unicode_variants():
+    result = RelayResult(
+        run_id="relay-full-canary-test",
+        profile=RelayAuditProfile.FULL,
+        scenario=RelayVerdict.FAIL,
+        mode=RelayAuditMode.LIVE,
+        model="example-model",
+        endpoint_host="relay.example",
+        endpoint_hash="abcd1234abcd1234",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.FAIL,
+        risk_level=RelayRiskLevel.HIGH,
+        risk_categories=[RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE],
+        evidence=[
+            RelayEvidence(
+                key="full_profile_privacy_summary",
+                category=RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+                status="failed",
+                summary="tv_privacy_marker_do_not_echo and \\u0054\\u0056_PRIVACY_MARKER_DO_NOT_ECHO must not render.",
+                metrics={
+                    "case_variant": "tv_privacy_marker_do_not_echo",
+                    "unicode_variant": "\\u0054\\u0056_PRIVACY_MARKER_DO_NOT_ECHO",
+                },
+            )
+        ],
+        retest_guidance="Rerun full profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "TV_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
+    assert "tv_privacy_marker_do_not_echo" not in markdown
+    assert "\\u0054\\u0056_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
+    assert "[redacted-privacy-marker]" in markdown

@@ -628,3 +628,144 @@ def test_relay_cli_schema_malicious_failure_output_is_sanitized(monkeypatch, tmp
     assert "raw schema argument must not appear" not in markdown
     assert '{"tool_calls"' not in markdown
     assert "{\\\\\\\"tool_calls\\\\\\\"" not in markdown
+
+
+def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_general_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("general")
+                return RelayLiveTransportResponse(status_code=200, body={"choices": [{"message": {"content": "ok"}}]})
+
+            return transport
+
+        return factory
+
+    def fake_stream_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("streaming")
+                return [
+                    RelayStreamEvent("chat.completion.chunk", 0, True, len("ok"), False, None),
+                    RelayStreamEvent("chat.completion.chunk", 1, False, 0, True, "stop"),
+                ]
+
+            return transport
+
+        return factory
+
+    def fake_schema_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("schema")
+                return RelayLiveTransportResponse(
+                    status_code=200,
+                    body={
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls",
+                                "message": {
+                                    "tool_calls": [
+                                        {
+                                            "type": "function",
+                                            "function": {
+                                                "name": "tv_schema_echo",
+                                                "arguments": '{"item_count":2,"status":"ok"}',
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                )
+
+            return transport
+
+        return factory
+
+    def fake_privacy_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("privacy")
+                return RelayLiveTransportResponse(
+                    status_code=200,
+                    body={"choices": [{"message": {"content": "OK."}, "finish_reason": "stop"}]},
+                )
+
+            return transport
+
+        return factory
+
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport_factory", fake_general_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_stream_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", fake_schema_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_privacy_transport_factory", fake_privacy_factory)
+    output_path = tmp_path / "full-report.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?token=secret#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "full",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == ["general", "streaming", "schema", "privacy"]
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "Profile: full" in markdown
+    assert "Full profile" in markdown
+    assert "Serial execution can make timeout delays add up across subprofiles" in markdown
+    assert "api.relay.com" in markdown
+    assert "chat/completions" not in markdown
+    assert "token=secret" not in markdown
+
+
+def test_relay_cli_full_live_raw_secret_guard_wins_before_report(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_factory(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("factory must not be constructed after raw-secret guard")
+
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport_factory", forbidden_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", forbidden_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", forbidden_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_privacy_transport_factory", forbidden_factory)
+    output_path = tmp_path / "full-report.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "example-model",
+            "--profile",
+            "full",
+            "--api-key-env",
+            "sk-or-v1-private-token",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert touched is False
+    assert not output_path.exists()
+    assert "sk-or-v1-private-token" not in result.output

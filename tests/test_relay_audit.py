@@ -491,6 +491,129 @@ def test_run_relay_audit_with_live_schema_uses_injected_schema_transport():
     assert "sk-secret" not in repr(result)
 
 
+def test_run_relay_audit_with_live_privacy_uses_injected_privacy_transport():
+    calls = []
+
+    def transport(payload):
+        calls.append(payload)
+        return RelayLiveTransportResponse(
+            status_code=200,
+            body={"choices": [{"message": {"content": "OK."}, "finish_reason": "stop"}]},
+        )
+
+    result = run_relay_audit(
+        RelayAuditRequest(
+            base_url="https://api.relay.com/v1/chat/completions?token=secret#frag",
+            model="example-model",
+            profile=RelayAuditProfile.PRIVACY,
+            fake_scenario=None,
+            pack_path=None,
+            live=True,
+            api_key="sk-secret",
+            privacy_transport_factory=lambda: transport,
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["stream"] is False
+    assert result.profile == RelayAuditProfile.PRIVACY
+    assert result.verdict == RelayVerdict.PASS
+    assert "chat/completions" not in repr(result)
+    assert "sk-secret" not in repr(result)
+
+
+def test_run_relay_audit_with_live_full_routes_factories_in_order():
+    calls = []
+
+    def general_transport(payload):
+        calls.append("general")
+        return RelayLiveTransportResponse(status_code=200, body={"choices": [{"message": {"content": "ok"}}]})
+
+    def stream_transport(payload):
+        calls.append("streaming")
+        return [
+            RelayStreamEvent("chat.completion.chunk", 0, True, 2, False, None),
+            RelayStreamEvent("chat.completion.chunk", 1, False, 0, True, "stop"),
+        ]
+
+    def schema_transport(payload):
+        calls.append("schema")
+        return RelayLiveTransportResponse(
+            status_code=200,
+            body={
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "tv_schema_echo",
+                                        "arguments": '{"item_count":2,"status":"ok"}',
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ]
+            },
+        )
+
+    def privacy_transport(payload):
+        calls.append("privacy")
+        return RelayLiveTransportResponse(
+            status_code=200,
+            body={"choices": [{"message": {"content": "OK."}, "finish_reason": "stop"}]},
+        )
+
+    result = run_relay_audit(
+        RelayAuditRequest(
+            base_url="https://api.relay.com/v1/chat/completions?token=secret#frag",
+            model="example-model",
+            profile=RelayAuditProfile.FULL,
+            fake_scenario=None,
+            pack_path=None,
+            live=True,
+            api_key="sk-secret",
+            live_transport_factory=lambda: general_transport,
+            stream_transport_factory=lambda: stream_transport,
+            schema_transport_factory=lambda: schema_transport,
+            privacy_transport_factory=lambda: privacy_transport,
+        )
+    )
+
+    assert calls == ["general", "streaming", "schema", "privacy"]
+    assert result.profile == RelayAuditProfile.FULL
+    assert result.verdict == RelayVerdict.PASS
+
+
+def test_run_relay_audit_full_without_live_does_not_touch_factories():
+    calls = []
+
+    def factory():
+        calls.append("factory")
+        raise AssertionError("factory must not be touched without --live")
+
+    with pytest.raises(RelayAuditSecurityViolation):
+        run_relay_audit(
+            RelayAuditRequest(
+                base_url="https://api.relay.com/v1",
+                model="example-model",
+                profile=RelayAuditProfile.FULL,
+                fake_scenario=None,
+                pack_path=None,
+                live=False,
+                live_transport_factory=factory,
+                stream_transport_factory=factory,
+                schema_transport_factory=factory,
+                privacy_transport_factory=factory,
+            )
+        )
+
+    assert calls == []
+
+
 def test_run_relay_audit_schema_without_live_does_not_touch_schema_transport_factory():
     calls = []
 
@@ -510,34 +633,6 @@ def test_run_relay_audit_schema_without_live_does_not_touch_schema_transport_fac
                 schema_transport_factory=schema_factory,
             )
         )
-
-    assert calls == []
-
-
-@pytest.mark.parametrize(
-    "profile",
-    [RelayAuditProfile.PRIVACY, RelayAuditProfile.FULL],
-)
-def test_run_relay_audit_live_unsupported_profile_blocks_before_stream_transport(profile):
-    calls = []
-
-    def stream_factory():
-        calls.append("factory")
-        raise AssertionError("streaming factory must not be touched for blocked profiles")
-
-    request = RelayAuditRequest(
-        base_url="https://api.relay.com/v1",
-        model="example-model",
-        profile=profile,
-        fake_scenario=None,
-        pack_path=None,
-        live=True,
-        api_key="sk-secret",
-        stream_transport_factory=stream_factory,
-    )
-
-    with pytest.raises(RelayAuditSecurityViolation):
-        run_relay_audit(request)
 
     assert calls == []
 

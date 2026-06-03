@@ -122,25 +122,44 @@ def test_authorization_allows_schema_live_without_touching_factory():
     assert calls == []
 
 
-@pytest.mark.parametrize(
-    "profile",
-    [
-        RelayAuditProfile.PRIVACY,
-        RelayAuditProfile.FULL,
-    ],
-)
-def test_authorization_blocks_unsupported_profiles_before_factories(profile):
+def test_authorization_allows_privacy_live_without_touching_factory():
     calls = []
 
     def client_factory():
         calls.append("client")
 
-    with pytest.raises(RelayAuditSecurityViolation) as exc_info:
-        authorize_relay_live_execution(
-            live_mode=True,
-            profile=profile,
-            client_factory=client_factory,
-        )
+    auth = authorize_relay_live_execution(
+        live_mode=True,
+        profile=RelayAuditProfile.PRIVACY,
+        client_factory=client_factory,
+    )
 
-    assert "not opened for this profile" in str(exc_info.value)
+    assert auth == RelayLiveAuthorization(
+        live_mode=True,
+        profile=RelayAuditProfile.PRIVACY,
+        approved_live_path="privacy_minimal_contract",
+        network_scope="single_privacy_request",
+    )
     assert calls == []
+
+
+def test_authorization_allows_full_live_without_touching_factory():
+    calls = []
+
+    def client_factory():
+        calls.append("client")
+
+    auth = authorize_relay_live_execution(
+        live_mode=True,
+        profile=RelayAuditProfile.FULL,
+        client_factory=client_factory,
+    )
+
+    assert auth == RelayLiveAuthorization(
+        live_mode=True,
+        profile=RelayAuditProfile.FULL,
+        approved_live_path="full_composite_profile",
+        network_scope="approved_subprofile_sequence",
+    )
+    assert calls == []
+

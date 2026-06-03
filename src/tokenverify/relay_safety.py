@@ -94,8 +94,41 @@ def _strip_schema_shells(text: str) -> str:
     return text
 
 
+def _strip_privacy_shells(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(
+        r"\{[\s\S]*?\\*[\"']messages\\*[\"'][\s\S]*?\}",
+        "[redacted-privacy-shell]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(
+        r"\{[\s\S]*?\\*[\"']error\\*[\"'][\s\S]*?\}",
+        "[redacted-error-shell]",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return text
+
+
+def _strip_privacy_canary_markers(text: str) -> str:
+    if not text:
+        return text
+    patterns = [
+        r"tv_privacy_marker_do_not_echo",
+        r"\\u0054\\u0056_privacy_marker_do_not_echo",
+        r"\\u0074\\u0076_privacy_marker_do_not_echo",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "[redacted-privacy-marker]", text, flags=re.IGNORECASE)
+    return text
+
+
 def sanitize_public_relay_text(value: object) -> str:
-    text = _strip_schema_shells(_strip_stream_shells(str(value)))
+    text = _strip_privacy_canary_markers(
+        _strip_privacy_shells(_strip_schema_shells(_strip_stream_shells(str(value))))
+    )
     text = re.sub(r"https?://[^\s`'\"<>]+", lambda match: sanitize_to_fqdn(match.group(0)), text)
     text = re.sub(
         r"(?<!\w)(?:~|/[A-Za-z0-9_.-]+|[A-Za-z]:\\)[^\s`'\"<>]*",
@@ -141,6 +174,14 @@ def authorize_relay_live_execution(
         RelayAuditProfile.SCHEMA: (
             "schema_minimal_tool_preservation",
             "single_schema_tool_request",
+        ),
+        RelayAuditProfile.PRIVACY: (
+            "privacy_minimal_contract",
+            "single_privacy_request",
+        ),
+        RelayAuditProfile.FULL: (
+            "full_composite_profile",
+            "approved_subprofile_sequence",
         ),
     }
     if profile not in approved_paths:

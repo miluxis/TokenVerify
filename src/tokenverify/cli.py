@@ -41,7 +41,7 @@ RELAY_AUDIT_HELP = """Run a deterministic TokenVerify Relay Audit fake-run or gu
 Fake-run example:
   tokenverify relay-audit --base-url https://relay.example/v1 --model example-model --profile general --fake-run suspicious
 
-Live execution is limited to approved minimal general connectivity, streaming/SSE integrity, and schema/tool preservation paths.
+Live execution is limited to approved minimal general connectivity, streaming/SSE integrity, schema/tool preservation, privacy contract, and full composite paths.
 
 Exit code 0: fake-run verdict pass or suspicious.
 Exit code 1: fake-run verdict fail.
@@ -177,6 +177,19 @@ def relay_audit(
                     request,
                     schema_transport_factory=_default_relay_schema_transport_factory(request),
                 )
+            elif relay_profile == RelayAuditProfile.PRIVACY:
+                request = replace(
+                    request,
+                    privacy_transport_factory=_default_relay_privacy_transport_factory(request),
+                )
+            elif relay_profile == RelayAuditProfile.FULL:
+                request = replace(
+                    request,
+                    live_transport_factory=_default_relay_live_transport_factory(request),
+                    stream_transport_factory=_default_relay_stream_transport_factory(request),
+                    schema_transport_factory=_default_relay_schema_transport_factory(request),
+                    privacy_transport_factory=_default_relay_privacy_transport_factory(request),
+                )
             else:
                 request = replace(request, live_transport_factory=_default_relay_live_transport_factory(request))
         result = run_relay_audit(
@@ -234,6 +247,13 @@ def _default_relay_live_transport(request: RelayAuditRequest):
 
 
 def _default_relay_schema_transport_factory(request: RelayAuditRequest):
+    def factory():
+        return _default_relay_live_transport(request)
+
+    return factory
+
+
+def _default_relay_privacy_transport_factory(request: RelayAuditRequest):
     def factory():
         return _default_relay_live_transport(request)
 
