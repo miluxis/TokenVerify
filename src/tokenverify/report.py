@@ -60,6 +60,7 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
         "",
     ]
     lines.extend(_plain_language_summary(result, language))
+    lines.extend(_audit_route_section("provider", "provider/model authenticity", language))
     lines.extend(_channel_risk_profile(result, language))
     lines.extend(_suspected_upstream_signals_section(result, language))
     lines.append("## Target Summary")
@@ -194,6 +195,26 @@ def _plain_language_summary(result: AuditResult, language: str) -> list[str]:
         lines.append("- No cross-provider routing, obvious model downgrade, or strong structural contradiction was observed.")
     lines.append("- Black-box checks cannot prove the true upstream source with 100% certainty; they are used to find strong contradictions, obvious downgrades, and channel risk.")
     return lines + [""]
+
+
+def _audit_route_section(route: str, route_family: str, language: str) -> list[str]:
+    if language == "zh":
+        return [
+            "## Audit Route",
+            "",
+            f"- Route: `{route}`",
+            f"- Route family: {route_family}",
+            "- 这一路径用于判断接口是否符合声明的 provider/model/API 行为。",
+            "",
+        ]
+    return [
+        "## Audit Route",
+        "",
+        f"- Route: `{route}`",
+        f"- Route family: {route_family}",
+        "- This path evaluates provider/model/API authenticity evidence.",
+        "",
+    ]
 
 
 def _channel_risk_profile(result: AuditResult, language: str) -> list[str]:

@@ -27,6 +27,8 @@ def test_relay_report_renders_required_sections_and_sanitized_endpoint():
 
     assert "# TokenVerify Relay Audit Report" in markdown
     assert "Plain-Language Summary" in markdown
+    assert "Audit Route" in markdown
+    assert "relay contract/safety" in markdown
     assert "Target Summary" in markdown
     assert "Relay Verdict" in markdown
     assert "Risk Categories" in markdown

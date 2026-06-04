@@ -2,14 +2,39 @@
 
 TokenVerify audits whether an endpoint behaves like its claimed provider, API shape, and model family. It writes a Markdown report and exits with a script-friendly status code.
 
-## Choose The Command
+## Unified Audit Entry
 
-| Command | Use this when |
+Use `tokenverify audit` as the primary entry. TokenVerify routes config-style
+inputs to provider/model authenticity audit and direct base-url/model inputs to
+relay contract audit.
+
+`tokenverify relay-audit` remains available as a compatibility command during
+migration, but new examples use `tokenverify audit`.
+
+Routing is inferred from the input shape:
+
+- `--config ...` runs provider/model authenticity audit unless the YAML declares `route: relay`.
+- `--base-url ... --model ...` runs relay contract audit.
+- `--endpoint` is valid only with `--config`.
+- `--profile` and `--fake-run` apply to relay targets.
+- `--api-key-env` must name an environment variable. For live relay checks, the variable must exist before execution starts. Fake-runs do not require real credentials.
+
+| Input style | Use this when |
 | --- | --- |
-| `tokenverify audit` | You want provider/model-family authenticity, compatibility, reasoning, and channel-risk analysis. |
-| `tokenverify relay-audit` | You want relay contract checks such as streaming integrity, schema/tool preservation, privacy leakage, and sanitized public reporting. |
+| `tokenverify audit --config ...` | You want provider/model-family authenticity, compatibility, reasoning, and channel-risk analysis. |
+| `tokenverify audit --base-url ... --model ...` | You want relay contract checks such as streaming integrity, schema/tool preservation, privacy leakage, and sanitized public reporting. |
 
-`audit` and `relay-audit` are intentionally separate in the current release because they use different evidence models, exit semantics, and report contracts. `audit` is the broader provider/model authenticity path. `relay-audit` is the narrower relay safety and contract path.
+Config-driven relay audit uses a top-level route declaration:
+
+```yaml
+route: relay
+relay:
+  base_url: https://relay.example/v1
+  model: example-model
+  profile: full
+  api_key_env: RELAY_API_KEY
+  live: true
+```
 
 ## Claude Native
 
@@ -62,7 +87,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 
 For R1 claims, TokenVerify expects native `reasoning_content` evidence on non-trivial reasoning prompts. Missing native R1 reasoning fields can lower trust. DeepSeek-compatible relays are not treated as official DeepSeek unless the channel evidence supports that claim.
 
-Reports are written automatically under `reports/audit-[model-name]-[date].md`. Detail audit uses 8 samples internally to look for relay, reverse-channel, account-pool, latency-variance, and model-drift risk signals.
+Provider reports are written automatically under `reports/audit-provider-[model-name]-[date].md`. Relay reports use `reports/audit-relay-[model-name]-[date].md`. Detail audit uses 8 samples internally to look for relay, reverse-channel, account-pool, latency-variance, and model-drift risk signals.
 
 Report explanations are English by default. Use `--language zh` for a Chinese report:
 
@@ -101,10 +126,10 @@ verification uses an allowlisted AST parser, not Python `eval()`.
 
 ## Relay Audit
 
-Use `relay-audit` when your main question is not "is this endpoint really the claimed provider?" but "is this relay preserving the contract it should preserve?"
+Use direct relay inputs when your main question is not "is this endpoint really the claimed provider?" but "is this relay preserving the contract it should preserve?"
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile full \

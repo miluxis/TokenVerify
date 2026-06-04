@@ -285,7 +285,7 @@ def test_relay_cli_auto_generates_report_path_from_model_and_date(tmp_path, monk
         ],
     )
 
-    expected_path = tmp_path / "reports" / "relay-audit-example-model-2026-06-02.md"
+    expected_path = tmp_path / "reports" / "audit-relay-example-model-2026-06-02.md"
     assert result.exit_code == 0
     assert expected_path.exists()
 

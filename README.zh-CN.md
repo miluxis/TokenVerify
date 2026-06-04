@@ -22,7 +22,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --endpoint primary
 ```
 
-报告会自动写入 `reports/audit-[model-name]-[date].md`。如果同名报告已经存在，TokenVerify 会追加数字后缀，不会覆盖旧报告。
+Provider 报告会自动写入 `reports/audit-provider-[model-name]-[date].md`。如果同名报告已经存在，TokenVerify 会追加数字后缀，不会覆盖旧报告。
 
 如果需要检查中转、逆向渠道、账号池、延迟方差或模型漂移风险，可以运行 detail audit：
 
@@ -68,7 +68,7 @@ Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径�
 运行一次不发网络请求的确定性演示：
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile general \
@@ -80,7 +80,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 ```bash
 export RELAY_API_KEY="your-relay-key"
 
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile full \
@@ -93,12 +93,24 @@ prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有
 答案。普通用户本地测评流程见：
 [`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md)。
 
-## 我该用哪个命令？
+`tokenverify relay-audit` 在迁移期仍可使用；新的示例统一使用 `tokenverify audit`。
 
-| 命令 | 普通用户场景 |
+## 统一审计入口
+
+默认使用 `tokenverify audit`。TokenVerify 会把 config 形态输入路由到
+provider/model 真伪审计，把 base-url/model 形态输入路由到 relay 契约安全审计。
+
+自动路由规则：
+
+- `--config ...` 默认运行 provider/model 真伪审计。
+- `--config ...` 且 YAML 顶层声明 `route: relay` 时，会从 YAML 的 `relay:` 块运行 relay 契约安全审计。
+- `--base-url ... --model ...` 会运行 relay 契约安全审计。
+- `--api-key-env` 需要的是环境变量名，不是 key 本身。Relay live 检测开始前会检查该变量是否存在；fake-run 不需要真实凭证。
+
+| 输入形态 | 普通用户场景 |
 | --- | --- |
-| `tokenverify audit` | 你想判断一个端点是否真的像它声称的 provider / model family，并检查 reasoning、渠道和兼容性是否可信。 |
-| `tokenverify relay-audit` | 你已经知道这是中转，或者你怀疑它是中转，想重点检查 relay contract、streaming、schema/tool 保真、隐私泄漏和公开报告安全性。 |
+| `tokenverify audit --config ...` | 你想判断一个端点是否真的像它声称的 provider / model family，并检查 reasoning、渠道和兼容性是否可信。 |
+| `tokenverify audit --base-url ... --model ...` | 你已经知道这是中转，或者你怀疑它是中转，想重点检查 relay contract、streaming、schema/tool 保真、隐私泄漏和公开报告安全性。 |
 
 ## Relay Audit Profile 的普通用户场景
 
@@ -110,6 +122,18 @@ prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有
 | `privacy` | 当你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露时使用。 |
 | `full` | 当你要一次性生成综合报告，用于留档、对比或公开展示时使用。 |
 
+通过 YAML 配置运行 relay audit 可以使用这种形态：
+
+```yaml
+route: relay
+relay:
+  base_url: https://relay.example/v1
+  model: example-model
+  profile: full
+  api_key_env: RELAY_API_KEY
+  live: true
+```
+
 ## 支持的检测路径
 
 | 路径 | 示例配置 | 检查内容 |
@@ -118,7 +142,7 @@ prompt 文本、模型响应文本、header 值、完整 URL、API key 或私有
 | OpenAI 兼容 Claude 中转 | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions 结构、Claude 模型声明一致性、Claude thinking/version 线索、reasoning 泄漏、中转与渠道风险症状。 |
 | OpenAI 兼容 OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI 风格 Chat Completions、模型家族一致性、reasoning 能力证据、stream 序列、官方/兼容渠道线索。 |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek 模型家族一致性、R1 `reasoning_content`、reasoning/content 流式顺序、官方/兼容渠道线索。 |
-| Relay Audit CLI | `tokenverify relay-audit` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏和 full 组合报告。 |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏和 full 组合报告。 |
 
 当前刻意不做的范围：
 
@@ -232,7 +256,7 @@ pack 不会被当作 Python 代码执行。
 
 ## CLI 退出码
 
-`tokenverify audit` 会先写出 Markdown 报告，再返回审计结果退出码：
+`tokenverify audit` 会先写出 Markdown 报告，再返回退出码。对于 provider-style 输入：
 
 - `0`：检测完成，结果为 high 或 medium trust。
 - `1`：检测完成，结果为 low trust。
@@ -241,8 +265,7 @@ pack 不会被当作 Python 代码执行。
 
 无 key 或离线路径不会发送真实 provider 请求。它会生成 `Inconclusive` 报告并返回退出码 `3`。
 
-`tokenverify relay-audit` 会先写出脱敏 Markdown 报告，再返回 Relay Audit
-退出码：
+对于 relay-style 输入：
 
 - `0`：relay audit 完成，verdict 为 `pass` 或 `suspicious`。
 - `1`：relay audit 完成，verdict 为 `fail`。

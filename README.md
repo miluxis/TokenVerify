@@ -28,7 +28,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --endpoint primary
 ```
 
-Reports are written automatically under `reports/audit-[model-name]-[date].md`.
+Provider reports are written automatically under `reports/audit-provider-[model-name]-[date].md`.
 If a report with the same name already exists, TokenVerify appends a numeric
 suffix instead of overwriting it.
 
@@ -79,7 +79,7 @@ endpoints. It supports deterministic fake runs and guarded live checks across
 Run a deterministic no-network demo:
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile general \
@@ -91,7 +91,7 @@ Run a real live check only when you explicitly opt in:
 ```bash
 export RELAY_API_KEY="your-relay-key"
 
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile full \
@@ -104,12 +104,26 @@ They do not print full prompt text, model response text, header values, full URL
 keys, or private challenge answers. See the local measurement guide:
 [`docs/relay-audit-user-guide.zh-CN.md`](docs/relay-audit-user-guide.zh-CN.md).
 
-## Which Command Should I Use?
+`tokenverify relay-audit` remains available as a compatibility command during
+migration, but new examples use `tokenverify audit`.
 
-| Command | Ordinary user scenario |
+## Unified Audit Entry
+
+Use `tokenverify audit` as the primary entry. TokenVerify routes config-style
+inputs to provider/model authenticity audit and direct base-url/model inputs to
+relay contract audit.
+
+Automatic routing rules:
+
+- `--config ...` runs provider/model authenticity audit by default.
+- `--config ...` with top-level `route: relay` runs relay contract audit from the YAML `relay:` block.
+- `--base-url ... --model ...` runs relay contract audit.
+- `--api-key-env` is a variable name, not the key itself. For live relay checks, the named variable must exist before execution starts; fake-runs do not require real credentials.
+
+| Input style | Ordinary user scenario |
 | --- | --- |
-| `tokenverify audit` | You want to know whether an endpoint behaves like its claimed provider/model family, and whether its reasoning, channel, or compatibility story looks credible. |
-| `tokenverify relay-audit` | You already know this is a relay or suspect relay behavior, and you want to check contract integrity, streaming quality, schema/tool preservation, privacy leakage, and public-report safety. |
+| `tokenverify audit --config ...` | You want to know whether an endpoint behaves like its claimed provider/model family, and whether its reasoning, channel, or compatibility story looks credible. |
+| `tokenverify audit --base-url ... --model ...` | You already know this is a relay or suspect relay behavior, and you want to check contract integrity, streaming quality, schema/tool preservation, privacy leakage, and public-report safety. |
 
 ## Relay Audit Profiles For Ordinary Users
 
@@ -121,6 +135,18 @@ keys, or private challenge answers. See the local measurement guide:
 | `privacy` | Use this when you worry about prompt leakage, hidden instruction echo, message rewrite, or upstream error disclosure. |
 | `full` | Use this when you want one combined report for record-keeping, comparison, or public presentation. |
 
+Config-driven relay audit can use this shape:
+
+```yaml
+route: relay
+relay:
+  base_url: https://relay.example/v1
+  model: example-model
+  profile: full
+  api_key_env: RELAY_API_KEY
+  live: true
+```
+
 ## Supported Audit Paths
 
 | Path | Example config | What it checks |
@@ -129,7 +155,7 @@ keys, or private challenge answers. See the local measurement guide:
 | OpenAI-compatible Claude relay | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions shape, Claude model claim consistency, Claude thinking/version clues, reasoning leakage, relay and channel-risk symptoms. |
 | OpenAI-compatible OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, official-vs-compatible channel clues. |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek model-family consistency, R1 `reasoning_content`, reasoning/content stream order, official-vs-compatible channel clues. |
-| Relay Audit CLI | `tokenverify relay-audit` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, and full composite reporting. |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, and full composite reporting. |
 
 Current intentional boundaries:
 
@@ -263,8 +289,8 @@ Other report fields:
 
 ## CLI Exit Codes
 
-`tokenverify audit` writes the Markdown report before returning an audit-result
-exit code:
+`tokenverify audit` writes the Markdown report before returning an exit code.
+For provider-style inputs:
 
 - `0`: audit completed with high or medium trust.
 - `1`: audit completed with low trust.
@@ -275,8 +301,7 @@ No-key or offline paths do not send a real provider request. They produce an
 `Inconclusive` report and return exit code `3`; check the report for API key,
 network, quota, or unsupported-target details.
 
-`tokenverify relay-audit` writes a sanitized Markdown report before returning a
-relay-audit exit code:
+For relay-style inputs:
 
 - `0`: relay audit completed with verdict `pass` or `suspicious`.
 - `1`: relay audit completed with verdict `fail`.

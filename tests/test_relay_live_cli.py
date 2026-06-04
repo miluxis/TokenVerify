@@ -61,6 +61,161 @@ def test_relay_cli_live_general_uses_default_transport_factory_after_authorizati
     assert "sk-secret" not in markdown
 
 
+def test_unified_audit_relay_route_requires_model_when_base_url_present():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Detected --base-url" in result.output
+    assert "--model" in result.output
+
+
+def test_unified_audit_relay_route_requires_base_url_when_model_present():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--model",
+            "example-model",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Detected --model" in result.output
+    assert "--base-url" in result.output
+
+
+def test_unified_audit_provider_endpoint_requires_config():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--endpoint",
+            "primary",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Detected --endpoint" in result.output
+    assert "--config" in result.output
+
+
+def test_unified_audit_direct_relay_fake_run_writes_relay_report(tmp_path):
+    output_path = tmp_path / "relay.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag",
+            "--model",
+            "example-model",
+            "--profile",
+            "privacy",
+            "--fake-run",
+            "suspicious",
+            "--output",
+            str(output_path),
+        ],
+        env={"RELAY_API_KEY": "sk-secret"},
+    )
+
+    assert result.exit_code == 0
+    assert "Wrote relay audit report:" in result.output
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "TokenVerify Relay Audit Report" in markdown
+    assert "Audit Route" in markdown
+    assert "relay contract/safety" in markdown
+    assert "privacy" in markdown
+    assert "https://" not in markdown
+    assert "heiyan_studio" not in markdown
+
+
+def test_unified_audit_relay_detail_audit_yes_is_rejected():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--detail-audit",
+            "yes",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "relay repeated full-profile audit is not part of the current release" in result.output.lower()
+
+
+def test_unified_audit_relay_unexpected_runtime_failure_exits_one(monkeypatch):
+    def broken_run_relay_audit(request):
+        raise AttributeError("internal bug with https://api.relay.com/v1?token=secret")
+
+    monkeypatch.setattr(cli_module, "run_relay_audit", broken_run_relay_audit)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1?token=secret",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Relay audit failed before a public result could be produced." in result.output
+    assert "https://" not in result.output
+    assert "token=secret" not in result.output
+
+
+def test_unified_audit_config_route_relay_uses_relay_block(tmp_path):
+    config_path = tmp_path / "relay.yaml"
+    output_path = tmp_path / "relay-config.md"
+    config_path.write_text(
+        """
+route: relay
+relay:
+  base_url: https://api.relay.com/v1/chat/completions?user=heiyan_studio#frag
+  model: example-model
+  profile: general
+  fake_run: pass
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_path),
+        ],
+        env={"RELAY_API_KEY": "sk-secret"},
+    )
+
+    assert result.exit_code == 0
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "TokenVerify Relay Audit Report" in markdown
+    assert "relay contract/safety" in markdown
+    assert "https://" not in markdown
+    assert "heiyan_studio" not in markdown
+
+
 def test_relay_cli_live_general_supports_zh_report_language(tmp_path, monkeypatch):
     def fake_default_transport(request):
         def transport(payload):
@@ -158,6 +313,7 @@ def test_relay_cli_live_runtime_inconclusive_exits_three_and_writes_report(tmp_p
             "--output",
             str(output_path),
         ],
+        env={"RELAY_API_KEY": "sk-secret"},
     )
 
     assert result.exit_code == 3
@@ -192,6 +348,101 @@ def test_relay_cli_api_key_env_guard_blocks_raw_secret_before_other_errors(tmp_p
     assert "--api-key-env expects an environment variable name" in result.output
     assert "sk-or-v1-abcdef" not in result.output
     assert "missing-private.yaml" not in result.output
+
+
+def test_unified_audit_relay_missing_api_key_env_exits_two_before_transport(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_transport(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("transport factory must not be touched when env is missing")
+
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport", forbidden_transport)
+    output_path = tmp_path / "missing-env.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 2
+    assert "RELAY_API_KEY" in result.output
+    assert "not found in the current environment" in result.output
+    assert touched is False
+    assert not output_path.exists()
+
+
+def test_relay_audit_compat_missing_api_key_env_exits_two_before_transport(monkeypatch, tmp_path):
+    touched = False
+
+    def forbidden_transport(request):
+        nonlocal touched
+        touched = True
+        raise AssertionError("transport factory must not be touched when env is missing")
+
+    monkeypatch.setattr(cli_module, "_default_relay_live_transport", forbidden_transport)
+    output_path = tmp_path / "missing-env-compat.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 2
+    assert "RELAY_API_KEY" in result.output
+    assert "not found in the current environment" in result.output
+    assert touched is False
+    assert not output_path.exists()
+
+
+def test_unified_audit_relay_fake_run_does_not_require_api_key_env_to_exist(tmp_path):
+    output_path = tmp_path / "fake-run.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
 
 
 def test_relay_cli_streaming_live_writes_sanitized_report(monkeypatch, tmp_path):
@@ -233,6 +484,7 @@ def test_relay_cli_streaming_live_writes_sanitized_report(monkeypatch, tmp_path)
             "--output",
             str(output_path),
         ],
+        env={"RELAY_API_KEY": "sk-secret"},
     )
 
     assert result.exit_code == 0
@@ -458,6 +710,65 @@ def test_parse_stream_json_line_malformed_bytes_error_is_sanitized():
     assert '{"choices"' not in rendered
 
 
+def test_unified_audit_relay_auto_report_path_has_relay_prefix(tmp_path, monkeypatch):
+    class FixedDate:
+        @classmethod
+        def today(cls):
+            return "2026-06-03"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_module, "date", FixedDate)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+        ],
+    )
+
+    expected_path = tmp_path / "reports" / "audit-relay-example-model-2026-06-03.md"
+    assert result.exit_code == 0
+    assert expected_path.exists()
+    assert "audit-relay-example-model-2026-06-03.md" in result.output
+
+
+def test_relay_audit_compatibility_notice_goes_to_stderr(monkeypatch, tmp_path):
+    output_path = tmp_path / "compat.md"
+    notices = []
+    original_echo = cli_module.typer.echo
+
+    def capture_echo(message=None, *args, **kwargs):
+        if "Compatibility notice" in str(message):
+            notices.append(kwargs.get("err", False))
+        return original_echo(message, *args, **kwargs)
+
+    monkeypatch.setattr(cli_module.typer, "echo", capture_echo)
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert notices == [True]
+    assert "Relay audit completed with verdict: pass" in result.output
+
+
 def test_relay_cli_streaming_malicious_failure_output_is_sanitized(monkeypatch, tmp_path):
     def fake_default_stream_factory(request):
         def factory():
@@ -487,6 +798,7 @@ def test_relay_cli_streaming_malicious_failure_output_is_sanitized(monkeypatch, 
             "--output",
             str(output_path),
         ],
+        env={"RELAY_API_KEY": "sk-secret"},
     )
 
     assert result.exit_code == 3
@@ -553,6 +865,7 @@ def test_relay_cli_schema_live_writes_sanitized_report(monkeypatch, tmp_path):
             "--output",
             str(output_path),
         ],
+        env={"RELAY_API_KEY": "sk-secret"},
     )
 
     assert result.exit_code == 0
@@ -765,6 +1078,7 @@ def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
             "--output",
             str(output_path),
         ],
+        env={"RELAY_API_KEY": "sk-secret"},
     )
 
     assert result.exit_code == 0

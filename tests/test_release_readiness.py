@@ -101,7 +101,7 @@ def test_user_guide_covers_supported_audit_paths_and_interpretation():
 def test_readme_documents_auto_report_names_and_detail_audit():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "reports/audit-[model-name]-[date].md" in readme
+    assert "reports/audit-provider-[model-name]-[date].md" in readme
     assert "--detail-audit yes" in readme
     assert "--challenge-pack" in readme
     assert "--challenge-level standard" in readme
@@ -163,7 +163,7 @@ def test_readme_has_chinese_companion_without_mixing_long_chinese_into_english_r
         "--language zh",
         "--challenge-pack",
         "--challenge-level standard",
-        "reports/audit-[model-name]-[date].md",
+        "reports/audit-provider-[model-name]-[date].md",
     ]:
         assert required in zh_readme
 

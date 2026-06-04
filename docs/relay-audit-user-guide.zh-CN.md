@@ -4,14 +4,25 @@
 
 Relay Audit 是黑盒契约检测工具。它能发现明显的中转风险、schema/tool 改写、streaming 异常、隐私泄漏和运行不稳定信号，但不能 100% 证明真实上游是谁，也不能把单次超时或断连当作作弊证据。
 
-## 0. 先选命令
+## 0. 统一入口
 
-| 命令 | 适合的普通用户问题 |
+默认使用 `tokenverify audit`。TokenVerify 会把 config 形态输入路由到 provider/model 真伪审计，把 base-url/model 形态输入路由到 relay 契约安全审计。
+
+路由判断规则：
+
+- `--config ...` 默认运行 provider/model 真伪审计。
+- `--config ...` 且 YAML 顶层声明 `route: relay` 时，运行 relay 契约安全审计。
+- `--base-url ... --model ...` 运行 relay 契约安全审计。
+- `--endpoint` 只和 `--config` 一起使用。
+- `--profile` 和 `--fake-run` 只用于 relay 目标。
+- `--api-key-env` 需要的是环境变量名。Relay live 检测开始前会检查该变量是否存在；fake-run 不需要真实凭证。
+
+| 输入形态 | 适合的普通用户问题 |
 | --- | --- |
-| `tokenverify audit` | 这个端点到底像不像它声称的 provider / model，reasoning 和渠道特征是否可信？ |
-| `tokenverify relay-audit` | 这个中转层有没有改写、截断、泄漏、伪流式、破坏 schema，是否适合公开对比？ |
+| `tokenverify audit --config ...` | 这个端点到底像不像它声称的 provider / model，reasoning 和渠道特征是否可信？ |
+| `tokenverify audit --base-url ... --model ...` | 这个中转层有没有改写、截断、泄漏、伪流式、破坏 schema，是否适合公开对比？ |
 
-当前版本把两个命令分开，是因为它们的证据模型、退出码语义和报告合同不同。`audit` 更像 provider/model 真实性审计，`relay-audit` 更像 relay 契约和安全审计。
+`tokenverify relay-audit` 在迁移期仍可使用；新的示例统一使用 `tokenverify audit`。
 
 ## 1. 准备环境
 
@@ -24,7 +35,7 @@ python3 -m pip install -e ".[test]"
 确认 CLI 可用：
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit --help
+PYTHONPATH=src python3 -m tokenverify.cli audit --help
 ```
 
 ## 2. 先跑一次无网络 fake-run
@@ -32,7 +43,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit --help
 fake-run 不会发送任何真实请求，适合确认报告生成和展示格式。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile general \
@@ -42,7 +53,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 报告会写入：
 
 ```text
-reports/relay-audit-example-model-YYYY-MM-DD.md
+reports/audit-relay-example-model-YYYY-MM-DD.md
 ```
 
 如果同名文件已存在，会自动追加数字后缀。
@@ -58,7 +69,7 @@ export RELAY_API_KEY="你的真实 key"
 基础 live 检测：
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile general \
@@ -67,6 +78,24 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 ```
 
 没有 `--live` 时，即使你传了 endpoint、model 和 key，也不会发送真实网络请求。
+
+也可以用 YAML 配置 relay audit：
+
+```yaml
+route: relay
+relay:
+  base_url: https://your-relay.example/v1
+  model: your-model-name
+  profile: full
+  api_key_env: RELAY_API_KEY
+  live: true
+```
+
+运行：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit --config ./relay-audit.yaml
+```
 
 ## 4. 选择测评 profile
 
@@ -85,7 +114,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 最小连通性和响应包络检查。适合先确认 endpoint/key/model 是否可用。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile general \
@@ -98,7 +127,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 检查 SSE/streaming 序列、content delta、finish signal 和静态 chunk-size 异常。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile streaming \
@@ -111,7 +140,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 检查最小 tool-call/schema 契约是否被保留，包括 tool name、arguments JSON、required keys、type/enum 和自然语言 fallback。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile schema \
@@ -124,7 +153,7 @@ PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
 检查公开 do-not-echo marker 是否泄漏、简单 `OK` 回复是否被改写、是否出现上游/provider 错误泄漏信号。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile privacy \
@@ -143,7 +172,7 @@ general -> streaming -> schema -> privacy
 适合一次性出综合报告。由于是串行执行，如果目标 relay 很慢，各子检查的超时会线性叠加。
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile full \
@@ -176,7 +205,7 @@ challenges:
 运行：
 
 ```bash
-PYTHONPATH=src python3 -m tokenverify.cli relay-audit \
+PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile full \

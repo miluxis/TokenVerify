@@ -40,7 +40,10 @@ endpoints:
     )
 
     assert result.exit_code == 0
-    assert "High Trust" in output_path.read_text(encoding="utf-8")
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "High Trust" in markdown
+    assert "Audit Route" in markdown
+    assert "provider/model authenticity" in markdown
 
 
 def test_cli_language_zh_writes_chinese_report_explanation(tmp_path, monkeypatch):
@@ -130,7 +133,7 @@ endpoints:
 
     def fake_run_audit(runtime_config, repeat_count=1):
         assert repeat_count == 1
-        assert runtime_config.output_path == Path("reports/audit-claude-sonnet-4-5-2026-05-29.md")
+        assert runtime_config.output_path == Path("reports/audit-provider-claude-sonnet-4-5-2026-05-29.md")
         return AuditResult(
             target_summary={"base_url_host": "api.anthropic.com", "model": runtime_config.endpoint.model},
             probe_results=[],
@@ -145,7 +148,7 @@ endpoints:
 
     result = CliRunner().invoke(app, ["audit", "--config", str(config_path), "--endpoint", "primary"])
 
-    expected_path = tmp_path / "reports" / "audit-claude-sonnet-4-5-2026-05-29.md"
+    expected_path = tmp_path / "reports" / "audit-provider-claude-sonnet-4-5-2026-05-29.md"
     assert result.exit_code == 0
     assert expected_path.exists()
     assert f"Wrote audit report: {expected_path.relative_to(tmp_path)}" in result.output
@@ -153,7 +156,7 @@ endpoints:
 
 def test_cli_auto_generated_report_path_avoids_overwriting_existing_file(tmp_path, monkeypatch):
     config_path = tmp_path / "audit.yaml"
-    existing_path = tmp_path / "reports" / "audit-gpt-5-1-2026-05-29.md"
+    existing_path = tmp_path / "reports" / "audit-provider-gpt-5-1-2026-05-29.md"
     existing_path.parent.mkdir()
     existing_path.write_text("existing", encoding="utf-8")
     config_path.write_text(
@@ -176,7 +179,7 @@ endpoints:
             return "2026-05-29"
 
     def fake_run_audit(runtime_config, repeat_count=1):
-        assert runtime_config.output_path == Path("reports/audit-gpt-5-1-2026-05-29-2.md")
+        assert runtime_config.output_path == Path("reports/audit-provider-gpt-5-1-2026-05-29-2.md")
         return AuditResult(
             target_summary={"base_url_host": "api.openai.com", "model": runtime_config.endpoint.model},
             probe_results=[],
@@ -193,7 +196,7 @@ endpoints:
 
     assert result.exit_code == 0
     assert existing_path.read_text(encoding="utf-8") == "existing"
-    assert (tmp_path / "reports" / "audit-gpt-5-1-2026-05-29-2.md").exists()
+    assert (tmp_path / "reports" / "audit-provider-gpt-5-1-2026-05-29-2.md").exists()
 
 
 def test_cli_forwards_repeat_count_to_audit(tmp_path, monkeypatch):
@@ -432,11 +435,18 @@ def test_cli_help_documents_common_examples_and_exit_codes():
 
     assert result.exit_code == 0
     assert "Native Claude example" in result.output
-    assert "OpenAI-compatible Claude relay example" in result.output
+    assert "Relay contract audit example" in result.output
+    assert "Global Options" in result.output
+    assert "Provider Audit Options" in result.output
+    assert "Relay Audit Options" in result.output
+    assert "--config" in result.output
+    assert "--base-url" in result.output
+    assert "--model" in result.output
+    assert "--profile" in result.output
     assert "--detail-audit" in result.output
     assert "--language" in result.output
-    assert "Exit code 0: high/medium trust." in result.output
-    assert "Exit code 1: low trust." in result.output
-    assert "Exit code 2: configuration error." in result.output
+    assert "Exit code 0:" in result.output
+    assert "Exit code 1:" in result.output
+    assert "Exit code 2:" in result.output
     assert "Exit code 3: inconclusive runtime result." in result.output
     assert "--repeat" not in result.output
