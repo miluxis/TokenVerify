@@ -21,6 +21,8 @@ def test_relay_profile_validation_accepts_all_charter_values():
     assert parse_relay_profile("STREAMING") == RelayAuditProfile.STREAMING
     assert parse_relay_profile("schema") == RelayAuditProfile.SCHEMA
     assert parse_relay_profile("privacy") == RelayAuditProfile.PRIVACY
+    assert parse_relay_profile("security") == RelayAuditProfile.SECURITY
+    assert parse_relay_profile("context") == RelayAuditProfile.CONTEXT
     assert parse_relay_profile("full") == RelayAuditProfile.FULL
 
 
@@ -29,7 +31,7 @@ def test_relay_profile_validation_rejects_unknown_value():
         parse_relay_profile("wrong-value")
 
     assert "Unknown relay audit profile" in str(exc_info.value)
-    assert "general, streaming, schema, privacy, full" in str(exc_info.value)
+    assert "general, streaming, schema, privacy, security, context, full" in str(exc_info.value)
     assert "wrong-value" not in str(exc_info.value)
 
 

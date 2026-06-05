@@ -10,6 +10,7 @@ from tokenverify.relay_models import (
     RelayResult,
     RelayRiskCategory,
     RelayRiskLevel,
+    RelayRuntimeCategory,
     RelayVerdict,
 )
 from tokenverify.relay_safety import hash_relay_endpoint, sanitize_public_relay_text, sanitize_to_fqdn
@@ -25,6 +26,22 @@ def build_fake_relay_result(
 ) -> RelayResult:
     endpoint_host = sanitize_to_fqdn(endpoint)
     endpoint_hash = hash_relay_endpoint(endpoint)
+    if profile == RelayAuditProfile.SECURITY:
+        return _build_security_fake_result(
+            scenario=scenario,
+            endpoint_host=endpoint_host,
+            endpoint_hash=endpoint_hash,
+            model=model,
+            pack_summary=pack_summary,
+        )
+    if profile == RelayAuditProfile.CONTEXT:
+        return _build_context_fake_result(
+            scenario=scenario,
+            endpoint_host=endpoint_host,
+            endpoint_hash=endpoint_hash,
+            model=model,
+            pack_summary=pack_summary,
+        )
     evidence = list(_scenario_evidence(scenario))
     if profile != RelayAuditProfile.GENERAL:
         evidence.append(
@@ -132,6 +149,8 @@ def _profile_category(profile: RelayAuditProfile) -> RelayRiskCategory:
         RelayAuditProfile.STREAMING: RelayRiskCategory.STREAMING_INTEGRITY,
         RelayAuditProfile.SCHEMA: RelayRiskCategory.SCHEMA_TOOL_REWRITE,
         RelayAuditProfile.PRIVACY: RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+        RelayAuditProfile.SECURITY: RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+        RelayAuditProfile.CONTEXT: RelayRiskCategory.CONTEXT_TRUNCATION,
         RelayAuditProfile.FULL: RelayRiskCategory.LATENCY_OR_INSTABILITY,
         RelayAuditProfile.GENERAL: RelayRiskCategory.MODEL_SUBSTITUTION,
     }[profile]
@@ -154,3 +173,194 @@ def _run_id(
 ) -> str:
     material = "|".join([profile.value, scenario.value, endpoint_hash, model, pack_hash or "no-pack"])
     return "relay-fake-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
+
+
+def _build_security_fake_result(
+    *,
+    scenario: RelayVerdict,
+    endpoint_host: str,
+    endpoint_hash: str,
+    model: str,
+    pack_summary: RelayPackSummary,
+) -> RelayResult:
+    evidence = _security_fake_evidence(scenario)
+    risk_categories = sorted({item.category for item in evidence}, key=lambda item: item.value)
+    inconclusive_reason = None
+    runtime_category = None
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        runtime_category = RelayRuntimeCategory.TIMEOUT
+        inconclusive_reason = "The fake prompt-security scenario represents a sanitized runtime interruption."
+    return RelayResult(
+        run_id=_run_id(RelayAuditProfile.SECURITY, scenario, endpoint_hash, model, pack_summary.pack_hash),
+        profile=RelayAuditProfile.SECURITY,
+        scenario=scenario,
+        mode=RelayAuditMode.FAKE,
+        model=sanitize_public_relay_text(model),
+        endpoint_host=endpoint_host,
+        endpoint_hash=endpoint_hash,
+        pack_summary=pack_summary,
+        verdict=scenario,
+        risk_level=_risk_level_for(scenario),
+        risk_categories=risk_categories,
+        evidence=evidence,
+        retest_guidance=(
+            "Use live security profile only when you intentionally want bounded prompt-boundary evidence."
+        ),
+        inconclusive_reason=inconclusive_reason,
+        runtime_category=runtime_category,
+    )
+
+
+def _security_fake_evidence(scenario: RelayVerdict) -> list[RelayEvidence]:
+    if scenario == RelayVerdict.PASS:
+        return [
+            RelayEvidence(
+                key="security_boundary_control",
+                category=RelayRiskCategory.MESSAGE_REWRITE,
+                status="pass",
+                summary="The fake prompt-security scenario preserved all expected public boundary contracts.",
+                metrics={
+                    "security_probe_count": 3,
+                    "security_probe_completed_count": 3,
+                    "boundary_exact_answer_observed": True,
+                    "extraction_safe_answer_observed": True,
+                    "override_safe_answer_observed": True,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.FAIL:
+        return [
+            RelayEvidence(
+                key="security_hidden_instruction_echo",
+                category=RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+                status="fail",
+                summary=(
+                    "The fake prompt-security scenario simulates hidden-instruction echo and override leakage "
+                    "without exposing raw probe text."
+                ),
+                metrics={
+                    "security_probe_count": 3,
+                    "security_probe_completed_count": 3,
+                    "hidden_instruction_echo_detected": True,
+                    "prompt_extraction_signal_detected": True,
+                    "override_success_signal_detected": True,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        return [
+            RelayEvidence(
+                key="security_runtime_inconclusive",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="The fake prompt-security scenario simulates a sanitized runtime interruption.",
+                metrics={
+                    "security_probe_count": 3,
+                    "security_probe_completed_count": 1,
+                    "runtime_category": RelayRuntimeCategory.TIMEOUT.value,
+                },
+            )
+        ]
+    return [
+        RelayEvidence(
+            key="security_role_boundary_rewrite",
+            category=RelayRiskCategory.MESSAGE_REWRITE,
+            status="suspicious",
+            summary="The fake prompt-security scenario simulates non-exact but non-leaking public behavior.",
+            metrics={"security_probe_count": 3, "security_probe_completed_count": 3},
+        )
+    ]
+
+
+def _build_context_fake_result(
+    *,
+    scenario: RelayVerdict,
+    endpoint_host: str,
+    endpoint_hash: str,
+    model: str,
+    pack_summary: RelayPackSummary,
+) -> RelayResult:
+    evidence = _context_fake_evidence(scenario)
+    inconclusive_reason = None
+    runtime_category = None
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        runtime_category = RelayRuntimeCategory.TIMEOUT
+        inconclusive_reason = "The fake context-retention scenario represents a sanitized runtime interruption."
+    return RelayResult(
+        run_id=_run_id(RelayAuditProfile.CONTEXT, scenario, endpoint_hash, model, pack_summary.pack_hash),
+        profile=RelayAuditProfile.CONTEXT,
+        scenario=scenario,
+        mode=RelayAuditMode.FAKE,
+        model=sanitize_public_relay_text(model),
+        endpoint_host=endpoint_host,
+        endpoint_hash=endpoint_hash,
+        pack_summary=pack_summary,
+        verdict=scenario,
+        risk_level=_risk_level_for(scenario),
+        risk_categories=[RelayRiskCategory.CONTEXT_TRUNCATION],
+        evidence=evidence,
+        retest_guidance="Use live context profile only when you intentionally want bounded anchor-retention evidence.",
+        inconclusive_reason=inconclusive_reason,
+        runtime_category=runtime_category,
+    )
+
+
+def _context_fake_evidence(scenario: RelayVerdict) -> list[RelayEvidence]:
+    if scenario == RelayVerdict.PASS:
+        return [
+            RelayEvidence(
+                key="context_anchor_retention",
+                category=RelayRiskCategory.CONTEXT_TRUNCATION,
+                status="pass",
+                summary="The fake context-retention scenario preserved all expected public anchors.",
+                metrics={
+                    "context_probe_count": 2,
+                    "context_probe_completed_count": 2,
+                    "anchor_missing_count": 0,
+                    "anchor_order_preserved": True,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.SUSPICIOUS:
+        return [
+            RelayEvidence(
+                key="context_anchor_rewrite",
+                category=RelayRiskCategory.CONTEXT_TRUNCATION,
+                status="suspicious",
+                summary="The fake context-retention scenario kept anchors but degraded the exact separator contract.",
+                metrics={
+                    "context_probe_count": 2,
+                    "context_probe_completed_count": 2,
+                    "separator_degradation_detected": True,
+                    "anchor_missing_count": 0,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.FAIL:
+        return [
+            RelayEvidence(
+                key="context_anchor_missing",
+                category=RelayRiskCategory.CONTEXT_TRUNCATION,
+                status="fail",
+                summary="The fake context-retention scenario simulates missing or wrong public anchor evidence.",
+                metrics={
+                    "context_probe_count": 2,
+                    "context_probe_completed_count": 2,
+                    "anchor_missing_count": 1,
+                    "closing_anchor_wrongly_selected": True,
+                },
+            )
+        ]
+    return [
+        RelayEvidence(
+            key="context_runtime_inconclusive",
+            category=RelayRiskCategory.CONTEXT_TRUNCATION,
+            status="inconclusive",
+            summary="The fake context-retention scenario simulates a sanitized runtime interruption.",
+            metrics={
+                "context_probe_count": 2,
+                "context_probe_completed_count": 1,
+                "runtime_category": RelayRuntimeCategory.TIMEOUT.value,
+            },
+        )
+    ]

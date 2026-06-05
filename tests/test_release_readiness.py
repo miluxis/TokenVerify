@@ -98,6 +98,40 @@ def test_user_guide_covers_supported_audit_paths_and_interpretation():
     assert "--output" not in user_guide
 
 
+def test_docs_describe_security_profile_for_ordinary_users():
+    docs = "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "README.zh-CN.md",
+            "docs/user-guide.md",
+            "docs/relay-audit-user-guide.zh-CN.md",
+        )
+    )
+
+    assert "--profile security" in docs
+    assert "prompt boundaries" in docs.lower() or "提示词边界" in docs
+    assert "jailbreak-proof" not in docs.lower()
+    assert "越狱免疫" not in docs
+
+
+def test_docs_describe_context_profile_for_ordinary_users():
+    docs = "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "README.zh-CN.md",
+            "docs/user-guide.md",
+            "docs/relay-audit-user-guide.zh-CN.md",
+        )
+    )
+
+    assert "--profile context" in docs
+    assert "early, middle, and late public context anchors" in docs or "早段、中段和末段公开上下文锚点" in docs
+    assert "proof of malicious truncation" not in docs.lower()
+    assert "恶意截断证明" not in docs
+
+
 def test_readme_documents_auto_report_names_and_detail_audit():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 

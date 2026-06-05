@@ -125,10 +125,56 @@ def _strip_privacy_canary_markers(text: str) -> str:
     return text
 
 
+SECURITY_PUBLIC_MARKERS = (
+    "TV_SAFE_BOUNDARY_OK",
+    "TV_EXTRACTION_SAFE",
+    "TV_OVERRIDE_SAFE",
+)
+
+CONTEXT_PUBLIC_MARKERS = (
+    "TV_CTX_ALPHA",
+    "TV_CTX_BRAVO",
+    "TV_CTX_CHARLIE",
+    "TV_CTX_OPENING",
+    "TV_CTX_MIDDLE",
+    "TV_CTX_CLOSING",
+)
+
+
+def _decode_common_unicode_escapes(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        try:
+            return chr(int(match.group(1), 16))
+        except ValueError:
+            return match.group(0)
+
+    return re.sub(r"\\u([0-9a-fA-F]{4})", replace, text)
+
+
+def _strip_security_markers(text: str) -> str:
+    if not text:
+        return text
+    for marker in SECURITY_PUBLIC_MARKERS:
+        text = re.sub(re.escape(marker), "[redacted-security-marker]", text, flags=re.IGNORECASE)
+    return text
+
+
+def _strip_context_markers(text: str) -> str:
+    if not text:
+        return text
+    decoded = _decode_common_unicode_escapes(text)
+    for marker in CONTEXT_PUBLIC_MARKERS:
+        decoded = re.sub(re.escape(marker), "[redacted-context-anchor]", decoded, flags=re.IGNORECASE)
+    return decoded
+
+
 def sanitize_public_relay_text(value: object) -> str:
-    text = _strip_privacy_canary_markers(
-        _strip_privacy_shells(_strip_schema_shells(_strip_stream_shells(str(value))))
+    text = _strip_security_markers(
+        _strip_privacy_canary_markers(
+            _strip_privacy_shells(_strip_schema_shells(_strip_stream_shells(str(value))))
+        )
     )
+    text = _strip_context_markers(text)
     text = re.sub(r"https?://[^\s`'\"<>]+", lambda match: sanitize_to_fqdn(match.group(0)), text)
     text = re.sub(
         r"(?<!\w)(?:~|/[A-Za-z0-9_.-]+|[A-Za-z]:\\)[^\s`'\"<>]*",
@@ -178,6 +224,14 @@ def authorize_relay_live_execution(
         RelayAuditProfile.PRIVACY: (
             "privacy_minimal_contract",
             "single_privacy_request",
+        ),
+        RelayAuditProfile.SECURITY: (
+            "security_prompt_boundary",
+            "up_to_three_non_streaming_security_requests",
+        ),
+        RelayAuditProfile.CONTEXT: (
+            "context_anchor_retention",
+            "up_to_two_non_streaming_context_requests",
         ),
         RelayAuditProfile.FULL: (
             "full_composite_profile",

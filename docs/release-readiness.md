@@ -64,13 +64,13 @@ Before creating the GitHub release:
 Suggested GitHub About description:
 
 ```text
-Black-box LLM endpoint audit CLI for provider, model, reasoning, and relay-risk signals.
+Black-box LLM endpoint audit CLI for provider/model authenticity and relay contract security signals.
 ```
 
 Suggested GitHub About topics:
 
 ```text
-llm, ai, audit, security, openai, anthropic, claude, deepseek, model-routing, llmops, agpl
+llm, ai, audit, security, openai, anthropic, claude, deepseek, relay, prompt-security, llmops, agpl
 ```
 
 Suggested release title:

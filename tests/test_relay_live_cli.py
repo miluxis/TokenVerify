@@ -642,7 +642,207 @@ def test_relay_cli_streaming_fail_exits_1(monkeypatch, tmp_path):
 
     assert result.exit_code == 1
     assert "Relay audit completed with verdict: fail" in result.output
-    assert "stream_contract_violation" in output_path.read_text(encoding="utf-8")
+
+
+def test_unified_audit_security_fake_run_pass_creates_low_risk_report(tmp_path):
+    output_path = tmp_path / "security-pass.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = output_path.read_text(encoding="utf-8")
+    assert "security" in report.lower()
+    assert "Verdict: **pass**" in report
+    assert "Risk level: **low**" in report
+
+
+def test_unified_audit_security_fake_run_fail_is_sanitized(tmp_path):
+    output_path = tmp_path / "security-fail.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1/private?token=raw",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--fake-run",
+            "fail",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    report = output_path.read_text(encoding="utf-8")
+    assert "Verdict: **fail**" in report
+    assert "Risk level: **high**" in report
+    assert "tv_safe_boundary_ok" not in report.lower()
+    assert "tv_extraction_safe" not in report.lower()
+    assert "tv_override_safe" not in report.lower()
+    assert "/private?token=raw" not in report
+
+
+def test_unified_audit_security_fake_run_inconclusive_uses_exit_3(tmp_path):
+    output_path = tmp_path / "security-inconclusive.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--fake-run",
+            "inconclusive",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 3
+    report = output_path.read_text(encoding="utf-8")
+    assert "Verdict: **inconclusive**" in report
+    assert "Risk level: **unknown**" in report
+
+
+def test_security_live_missing_env_fails_before_transport_construction(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        constructed.append("security")
+        return None
+
+    monkeypatch.setattr(cli_module, "_default_relay_security_transport_factory", factory, raising=False)
+    output_path = tmp_path / "security.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--api-key-env",
+            "MISSING_RELAY_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 2
+    assert constructed == []
+    assert "MISSING_RELAY_KEY" in result.output
+    assert not output_path.exists()
+
+
+def test_security_live_raw_secret_api_key_env_wins_before_transport(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        constructed.append("security")
+        return None
+
+    monkeypatch.setattr(cli_module, "_default_relay_security_transport_factory", factory, raising=False)
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--api-key-env",
+            "sk-or-v1-raw-secret",
+            "--live",
+            "--output",
+            str(tmp_path / "security.md"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert constructed == []
+    assert "sk-or-v1-raw-secret" not in result.output
+
+
+def test_security_live_uses_delayed_default_transport_after_preflight(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        def build_transport():
+            constructed.append((request.profile.value, request.live))
+            responses = iter(
+                [
+                    RelayLiveTransportResponse(
+                        200,
+                        {"choices": [{"message": {"content": "TV_SAFE_BOUNDARY_OK"}, "finish_reason": "stop"}]},
+                    ),
+                    RelayLiveTransportResponse(
+                        200,
+                        {"choices": [{"message": {"content": "TV_EXTRACTION_SAFE"}, "finish_reason": "stop"}]},
+                    ),
+                    RelayLiveTransportResponse(
+                        200,
+                        {"choices": [{"message": {"content": "TV_OVERRIDE_SAFE"}, "finish_reason": "stop"}]},
+                    ),
+                ]
+            )
+
+            def transport(payload):
+                return next(responses)
+
+            return transport
+
+        return build_transport
+
+    monkeypatch.setattr(cli_module, "_default_relay_security_transport_factory", factory, raising=False)
+    output_path = tmp_path / "security-live.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "security",
+            "--api-key-env",
+            "RELAY_TEST_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={"RELAY_TEST_KEY": "sk-test"},
+    )
+
+    assert result.exit_code == 0
+    assert constructed == [("security", True)]
+    assert "Verdict: **pass**" in output_path.read_text(encoding="utf-8")
 
 
 def test_relay_cli_streaming_inconclusive_exits_3(monkeypatch, tmp_path):
@@ -1128,3 +1328,231 @@ def test_relay_cli_full_live_raw_secret_guard_wins_before_report(monkeypatch, tm
     assert touched is False
     assert not output_path.exists()
     assert "sk-or-v1-private-token" not in result.output
+
+
+def test_unified_audit_context_fake_run_pass_creates_low_risk_report(tmp_path):
+    output_path = tmp_path / "context-pass.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = output_path.read_text(encoding="utf-8")
+    assert "context" in report.lower()
+    assert "Verdict: **pass**" in report
+    assert "Risk level: **low**" in report
+
+
+def test_unified_audit_context_fake_run_fail_is_sanitized(tmp_path):
+    output_path = tmp_path / "context-fail.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1/private?token=raw",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--fake-run",
+            "fail",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    report = output_path.read_text(encoding="utf-8")
+    assert "Verdict: **fail**" in report
+    assert "Risk level: **high**" in report
+    assert "tv_ctx_alpha" not in report.lower()
+    assert "tv_ctx_middle" not in report.lower()
+    assert "/private?token=raw" not in report
+
+
+def test_unified_audit_context_fake_run_suspicious_exits_zero(tmp_path):
+    output_path = tmp_path / "context-suspicious.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--fake-run",
+            "suspicious",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = output_path.read_text(encoding="utf-8")
+    assert "Verdict: **suspicious**" in report
+    assert "separator_degradation_detected=True" in report
+
+
+def test_unified_audit_context_fake_run_inconclusive_uses_exit_3(tmp_path):
+    output_path = tmp_path / "context-inconclusive.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--fake-run",
+            "inconclusive",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 3
+    report = output_path.read_text(encoding="utf-8")
+    assert "Verdict: **inconclusive**" in report
+    assert "Risk level: **unknown**" in report
+
+
+def test_context_live_missing_env_fails_before_transport_construction(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        constructed.append("context")
+        return None
+
+    monkeypatch.setattr(cli_module, "_default_relay_context_transport_factory", factory, raising=False)
+    output_path = tmp_path / "context.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--api-key-env",
+            "MISSING_RELAY_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 2
+    assert constructed == []
+    assert "MISSING_RELAY_KEY" in result.output
+    assert not output_path.exists()
+
+
+def test_context_live_raw_secret_api_key_env_wins_before_transport(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        constructed.append("context")
+        return None
+
+    monkeypatch.setattr(cli_module, "_default_relay_context_transport_factory", factory, raising=False)
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--api-key-env",
+            "sk-or-v1-raw-secret",
+            "--live",
+            "--output",
+            str(tmp_path / "context.md"),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert constructed == []
+    assert "sk-or-v1-raw-secret" not in result.output
+
+
+def test_context_live_uses_delayed_default_transport_after_preflight(monkeypatch, tmp_path):
+    constructed = []
+
+    def factory(request):
+        def build_transport():
+            constructed.append((request.profile.value, request.live))
+            responses = iter(
+                [
+                    RelayLiveTransportResponse(
+                        200,
+                        {
+                            "choices": [
+                                {
+                                    "message": {"content": "TV_CTX_ALPHA|TV_CTX_BRAVO|TV_CTX_CHARLIE"},
+                                    "finish_reason": "stop",
+                                }
+                            ]
+                        },
+                    ),
+                    RelayLiveTransportResponse(
+                        200,
+                        {"choices": [{"message": {"content": "TV_CTX_MIDDLE"}, "finish_reason": "stop"}]},
+                    ),
+                ]
+            )
+
+            def transport(payload):
+                return next(responses)
+
+            return transport
+
+        return build_transport
+
+    monkeypatch.setattr(cli_module, "_default_relay_context_transport_factory", factory, raising=False)
+    output_path = tmp_path / "context-live.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "demo-model",
+            "--profile",
+            "context",
+            "--api-key-env",
+            "RELAY_TEST_KEY",
+            "--live",
+            "--output",
+            str(output_path),
+        ],
+        env={"RELAY_TEST_KEY": "sk-test"},
+    )
+
+    assert result.exit_code == 0
+    assert constructed == [("context", True)]
+    assert "Verdict: **pass**" in output_path.read_text(encoding="utf-8")

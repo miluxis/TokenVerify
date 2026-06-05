@@ -392,3 +392,128 @@ def test_full_profile_report_redacts_privacy_canary_case_and_unicode_variants():
     assert "tv_privacy_marker_do_not_echo" not in markdown
     assert "\\u0054\\u0056_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
     assert "[redacted-privacy-marker]" in markdown
+
+
+def test_relay_report_removes_security_markers_from_public_evidence():
+    result = RelayResult(
+        run_id="relay-security-test",
+        profile=RelayAuditProfile.SECURITY,
+        scenario=RelayVerdict.FAIL,
+        mode=RelayAuditMode.FAKE,
+        model="demo-model",
+        endpoint_host="relay.example",
+        endpoint_hash="relay-endpoint-abc123",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.FAIL,
+        risk_level=RelayRiskLevel.HIGH,
+        risk_categories=[RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE],
+        evidence=[
+            RelayEvidence(
+                key="security_hidden_instruction_echo",
+                category=RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+                status="fail",
+                summary="Leaked tv_safe_boundary_ok and TV_OVERRIDE_SAFE in public text.",
+                metrics={"leaked_marker": "TV_EXTRACTION_SAFE"},
+            )
+        ],
+        retest_guidance="Re-test with security profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "tv_safe_boundary_ok" not in markdown.lower()
+    assert "tv_extraction_safe" not in markdown.lower()
+    assert "tv_override_safe" not in markdown.lower()
+
+
+def test_security_report_uses_bounded_prompt_security_language():
+    result = RelayResult(
+        run_id="relay-security-test",
+        profile=RelayAuditProfile.SECURITY,
+        scenario=RelayVerdict.PASS,
+        mode=RelayAuditMode.FAKE,
+        model="demo-model",
+        endpoint_host="relay.example",
+        endpoint_hash="relay-endpoint-abc123",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.PASS,
+        risk_level=RelayRiskLevel.LOW,
+        risk_categories=[RelayRiskCategory.MESSAGE_REWRITE],
+        evidence=[
+            RelayEvidence(
+                key="security_boundary_control",
+                category=RelayRiskCategory.MESSAGE_REWRITE,
+                status="pass",
+                summary="The relay preserved the bounded prompt-security contract.",
+            )
+        ],
+        retest_guidance="Re-test security profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "bounded" in markdown.lower() or "not proof" in markdown.lower()
+    assert "jailbreak-proof" not in markdown.lower()
+
+
+def test_relay_report_removes_context_anchors_from_public_evidence():
+    result = RelayResult(
+        run_id="relay-context-test",
+        profile=RelayAuditProfile.CONTEXT,
+        scenario=RelayVerdict.FAIL,
+        mode=RelayAuditMode.FAKE,
+        model="demo-model",
+        endpoint_host="relay.example",
+        endpoint_hash="relay-endpoint-abc123",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.FAIL,
+        risk_level=RelayRiskLevel.HIGH,
+        risk_categories=[RelayRiskCategory.CONTEXT_TRUNCATION],
+        evidence=[
+            RelayEvidence(
+                key="context_anchor_missing",
+                category=RelayRiskCategory.CONTEXT_TRUNCATION,
+                status="fail",
+                summary="Missing tv_ctx_alpha while TV_CTX_BRAVO appeared.",
+                metrics={"leaky_anchor": "TV_CTX_CHARLIE"},
+            )
+        ],
+        retest_guidance="Re-test with context profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "tv_ctx_alpha" not in markdown.lower()
+    assert "tv_ctx_bravo" not in markdown.lower()
+    assert "tv_ctx_charlie" not in markdown.lower()
+
+
+def test_context_report_uses_bounded_context_retention_language():
+    result = RelayResult(
+        run_id="relay-context-test",
+        profile=RelayAuditProfile.CONTEXT,
+        scenario=RelayVerdict.PASS,
+        mode=RelayAuditMode.FAKE,
+        model="demo-model",
+        endpoint_host="relay.example",
+        endpoint_hash="relay-endpoint-abc123",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.PASS,
+        risk_level=RelayRiskLevel.LOW,
+        risk_categories=[RelayRiskCategory.CONTEXT_TRUNCATION],
+        evidence=[
+            RelayEvidence(
+                key="context_anchor_retention",
+                category=RelayRiskCategory.CONTEXT_TRUNCATION,
+                status="pass",
+                summary="The relay preserved bounded public context anchors.",
+            )
+        ],
+        retest_guidance="Re-test context profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "bounded" in markdown.lower()
+    assert "max-context benchmark" not in markdown.lower()
+    assert "proof of malicious" not in markdown.lower()

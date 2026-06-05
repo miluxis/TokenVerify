@@ -74,7 +74,7 @@ change the hard-fail authenticity scoring.
 
 Relay Audit is the focused CLI product path for auditing OpenAI-compatible relay
 endpoints. It supports deterministic fake runs and guarded live checks across
-`general`, `streaming`, `schema`, `privacy`, and `full` profiles.
+`general`, `streaming`, `schema`, `privacy`, `security`, `context`, and `full` profiles.
 
 Run a deterministic no-network demo:
 
@@ -95,6 +95,30 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile full \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Run bounded prompt-security checks when your concern is prompt boundaries under
+safe extraction and override pressure:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile security \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Run bounded context-retention checks when your concern is early, middle, and
+late public context anchors:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile context \
   --api-key-env RELAY_API_KEY \
   --live
 ```
@@ -133,6 +157,8 @@ Automatic routing rules:
 | `streaming` | Use this when you care whether typing-style streaming looks stable, complete, and not obviously synthetic. |
 | `schema` | Use this when your workload depends on tool calling, function calling, or JSON structure that must survive the relay unchanged. |
 | `privacy` | Use this when you worry about prompt leakage, hidden instruction echo, message rewrite, or upstream error disclosure. |
+| `security` | Use this when you want to check whether a relay preserves prompt boundaries under safe extraction and override pressure. |
+| `context` | Use this when you want to check whether a relay preserves early, middle, and late public context anchors instead of silently dropping or rewriting them. |
 | `full` | Use this when you want one combined report for record-keeping, comparison, or public presentation. |
 
 Config-driven relay audit can use this shape:
@@ -155,7 +181,7 @@ relay:
 | OpenAI-compatible Claude relay | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions shape, Claude model claim consistency, Claude thinking/version clues, reasoning leakage, relay and channel-risk symptoms. |
 | OpenAI-compatible OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, official-vs-compatible channel clues. |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek model-family consistency, R1 `reasoning_content`, reasoning/content stream order, official-vs-compatible channel clues. |
-| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, and full composite reporting. |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, prompt-security boundaries, context retention, and full composite reporting. |
 
 Current intentional boundaries:
 
@@ -169,6 +195,18 @@ Current intentional boundaries:
   audits for unsupported model families.
 - Relay Audit does not estimate billing or money spent.
 - Relay Audit does not run an 8-cycle repeated full-profile deep audit in the current release.
+- Relay Audit `security` is bounded black-box evidence about prompt boundaries; it does not prove malicious intent or complete jailbreak resistance.
+- Relay Audit `context` is bounded anchor-retention evidence. It does not measure exact context-window size, estimate billing, or prove malicious truncation.
+
+Open-source Core boundary:
+
+- This repository is the local CLI Core: single-endpoint provider/model audits,
+  single-endpoint relay contract audits, deterministic fake-runs, current public
+  relay profiles, sanitized Markdown reports, and local metadata summaries.
+- Commercial or hosted layers are intentionally outside this open-source Core:
+  private challenge-pack governance, signing/encryption/licensing, batch
+  scanning, dashboards, report comparison databases, machine-readable JSON/API
+  output for automation, hosted monitoring, and enterprise policy layers.
 
 ## Configuration
 

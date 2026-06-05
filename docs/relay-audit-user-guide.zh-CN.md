@@ -107,6 +107,8 @@ PYTHONPATH=src python3 -m tokenverify.cli audit --config ./relay-audit.yaml
 | `streaming` | 你关心流式输出是否稳定、完整、不像伪流式。 |
 | `schema` | 你依赖 tool calling、function calling 或 JSON 结构，不希望 relay 把结构弄坏。 |
 | `privacy` | 你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露。 |
+| `security` | 你想检查 relay 在安全的提取/覆盖压力下是否仍保留提示词边界。 |
+| `context` | 你想检查 relay 是否保留早段、中段和末段公开上下文锚点，而不是静默丢弃或改写它们。 |
 | `full` | 你要一次性生成综合报告，用于留档、对比或公开展示。 |
 
 ### general
@@ -160,6 +162,36 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --api-key-env RELAY_API_KEY \
   --live
 ```
+
+### security
+
+检查安全提取/覆盖压力下的提示词边界，例如是否出现隐藏指令回显、提取成功、覆盖成功或 relay 额外指令症状。
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --profile security \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+`security` 只提供有限黑盒证据，不证明中转存在恶意，也不代表具备完整越狱防护。
+
+### context
+
+检查早段、中段和末段公开上下文锚点是否被保留，是否出现静默丢弃、顺序异常、分隔符退化或错误锚点替换。
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --profile context \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+`context` 只提供有限的上下文锚点保留证据，不测量精确上下文窗口，不估算计费，也不证明存在恶意截断。
 
 ### full
 
@@ -266,6 +298,11 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 - private challenge answer；
 - private verifier logic。
 
+开源 Core 边界：
+
+- 当前仓库是本地 CLI Core：单端点 provider/model 审计、单端点 relay 契约审计、确定性 fake-run、当前公开 profiles、脱敏 Markdown 报告和本地 metadata 摘要。
+- 商业或托管层不放进当前开源 Core：私有 pack 治理、签名/加密/授权、批量扫描、dashboard、报告对比数据库、面向自动化的 JSON/API 输出、托管监控和企业策略层。
+
 ## 9. 建议测评流程
 
 推荐顺序：
@@ -275,8 +312,10 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 3. 跑 `streaming --live`，检查 SSE 行为。
 4. 跑 `schema --live`，检查 tool/schema 保真。
 5. 跑 `privacy --live`，检查隐私泄漏和改写。
-6. 最后跑 `full --live`，生成综合报告。
-7. 对 `suspicious` 或 `fail` 的目标，换时间复测一次，避免把临时故障当长期结论。
+6. 跑 `security --live`，检查提示词边界安全。
+7. 跑 `context --live`，检查公开上下文锚点保留。
+8. 最后跑 `full --live`，生成综合报告。
+9. 对 `suspicious` 或 `fail` 的目标，换时间复测一次，避免把临时故障当长期结论。
 
 ## 10. 常见问题
 
@@ -290,7 +329,7 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 
 ### full 很慢怎么办？
 
-`full` 是串行组合 profile。目标 relay 慢或不可用时，多个子检查的超时会叠加。可以先分别跑 `general`、`streaming`、`schema`、`privacy` 定位问题。
+`full` 是串行组合 profile。目标 relay 慢或不可用时，多个子检查的超时会叠加。可以先分别跑 `general`、`streaming`、`schema`、`privacy`、`security`、`context` 定位问题。
 
 当前不会做的事情：
 

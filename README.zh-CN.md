@@ -63,7 +63,7 @@ level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度�
 
 Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径。它支持
 确定性的 fake-run 演示，也支持经过 `--live` 明确授权的真实检测。当前 profile
-包括 `general`、`streaming`、`schema`、`privacy` 和 `full`。
+包括 `general`、`streaming`、`schema`、`privacy`、`security`、`context` 和 `full`。
 
 运行一次不发网络请求的确定性演示：
 
@@ -84,6 +84,28 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
   --profile full \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+当你关注安全提取/覆盖压力下的提示词边界时，可以运行：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile security \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+当你关注早段、中段和末段公开上下文锚点是否被保留时，可以运行：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile context \
   --api-key-env RELAY_API_KEY \
   --live
 ```
@@ -120,6 +142,8 @@ provider/model 真伪审计，把 base-url/model 形态输入路由到 relay 契
 | `streaming` | 当你关心打字机式流输出是否稳定、完整、不像伪流式时使用。 |
 | `schema` | 当你的工作流依赖 tool calling、function calling 或 JSON 结构，而且你不希望 relay 把结构弄坏时使用。 |
 | `privacy` | 当你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露时使用。 |
+| `security` | 当你想检查 relay 在安全的提取/覆盖压力下是否仍保留提示词边界时使用。 |
+| `context` | 当你想检查 relay 是否保留早段、中段和末段公开上下文锚点，而不是静默丢弃或改写它们时使用。 |
 | `full` | 当你要一次性生成综合报告，用于留档、对比或公开展示时使用。 |
 
 通过 YAML 配置运行 relay audit 可以使用这种形态：
@@ -142,7 +166,7 @@ relay:
 | OpenAI 兼容 Claude 中转 | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions 结构、Claude 模型声明一致性、Claude thinking/version 线索、reasoning 泄漏、中转与渠道风险症状。 |
 | OpenAI 兼容 OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI 风格 Chat Completions、模型家族一致性、reasoning 能力证据、stream 序列、官方/兼容渠道线索。 |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek 模型家族一致性、R1 `reasoning_content`、reasoning/content 流式顺序、官方/兼容渠道线索。 |
-| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏和 full 组合报告。 |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏、提示词边界安全、上下文保留和 full 组合报告。 |
 
 当前刻意不做的范围：
 
@@ -152,6 +176,13 @@ relay:
 - Dynamic challenge pack 是本地确定性探针，不是对未支持模型家族的 provider-specific audit。
 - Relay Audit 当前不做计费金额或账单估算。
 - Relay Audit 当前不做 8 次 full profile 深度循环。
+- Relay Audit `security` 只提供提示词边界的有限黑盒证据，不证明中转存在恶意，也不代表具备完整越狱防护。
+- Relay Audit `context` 只提供有限的上下文锚点保留证据，不测量精确上下文窗口，不估算计费，也不证明存在恶意截断。
+
+开源 Core 边界：
+
+- 当前仓库是本地 CLI Core：单端点 provider/model 审计、单端点 relay 契约审计、确定性 fake-run、当前公开 relay profiles、脱敏 Markdown 报告和本地 metadata 摘要。
+- 商业或托管层刻意不放进当前开源 Core：私有 challenge pack 治理、签名/加密/授权、批量扫描、dashboard、报告对比数据库、面向自动化的 JSON/API 输出、托管监控和企业策略层。
 
 ## 配置
 

@@ -14,6 +14,8 @@ class RelayAuditProfile(str, Enum):
     STREAMING = "streaming"
     SCHEMA = "schema"
     PRIVACY = "privacy"
+    SECURITY = "security"
+    CONTEXT = "context"
     FULL = "full"
 
 

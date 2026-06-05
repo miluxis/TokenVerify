@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from tokenverify.relay_context import RelayContextTransport, run_minimal_context_live_check
 from tokenverify.relay_fake import build_fake_relay_result
 from tokenverify.relay_full import run_full_live_check
 from tokenverify.relay_live import RelayLiveTransport, run_minimal_general_live_check
@@ -18,6 +19,7 @@ from tokenverify.relay_pack import load_relay_pack_summary
 from tokenverify.relay_privacy import RelayPrivacyTransport, run_minimal_privacy_live_check
 from tokenverify.relay_safety import authorize_relay_live_execution
 from tokenverify.relay_schema import RelaySchemaTransport, run_minimal_schema_live_check
+from tokenverify.relay_security import RelaySecurityTransport, run_minimal_security_live_check
 from tokenverify.relay_streaming import RelayStreamingTransport, run_minimal_streaming_live_check
 
 
@@ -34,6 +36,8 @@ class RelayAuditRequest:
     stream_transport_factory: Callable[[], RelayStreamingTransport | None] | None = None
     schema_transport_factory: Callable[[], RelaySchemaTransport | None] | None = None
     privacy_transport_factory: Callable[[], RelayPrivacyTransport | None] | None = None
+    security_transport_factory: Callable[[], RelaySecurityTransport | None] | None = None
+    context_transport_factory: Callable[[], RelayContextTransport | None] | None = None
 
 
 def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
@@ -135,6 +139,26 @@ def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
             api_key=request.api_key,
             pack_summary=pack_summary,
             transport=privacy_transport,
+        )
+    if request.profile == RelayAuditProfile.SECURITY:
+        security_transport = request.security_transport_factory() if request.security_transport_factory else None
+        return run_minimal_security_live_check(
+            authorization=authorization,
+            endpoint=request.base_url,
+            model=request.model,
+            api_key=request.api_key,
+            pack_summary=pack_summary,
+            transport=security_transport,
+        )
+    if request.profile == RelayAuditProfile.CONTEXT:
+        context_transport = request.context_transport_factory() if request.context_transport_factory else None
+        return run_minimal_context_live_check(
+            authorization=authorization,
+            endpoint=request.base_url,
+            model=request.model,
+            api_key=request.api_key,
+            pack_summary=pack_summary,
+            transport=context_transport,
         )
     live_transport = request.live_transport_factory() if request.live_transport_factory else None
     return run_minimal_general_live_check(

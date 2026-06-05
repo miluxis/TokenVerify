@@ -143,6 +143,48 @@ def test_authorization_allows_privacy_live_without_touching_factory():
     assert calls == []
 
 
+def test_authorization_allows_security_live_without_touching_factory():
+    calls = []
+
+    def client_factory():
+        calls.append("client")
+
+    auth = authorize_relay_live_execution(
+        live_mode=True,
+        profile=RelayAuditProfile.SECURITY,
+        client_factory=client_factory,
+    )
+
+    assert auth == RelayLiveAuthorization(
+        live_mode=True,
+        profile=RelayAuditProfile.SECURITY,
+        approved_live_path="security_prompt_boundary",
+        network_scope="up_to_three_non_streaming_security_requests",
+    )
+    assert calls == []
+
+
+def test_authorization_allows_context_live_without_touching_factory():
+    calls = []
+
+    def client_factory():
+        calls.append("client")
+
+    auth = authorize_relay_live_execution(
+        live_mode=True,
+        profile=RelayAuditProfile.CONTEXT,
+        client_factory=client_factory,
+    )
+
+    assert auth == RelayLiveAuthorization(
+        live_mode=True,
+        profile=RelayAuditProfile.CONTEXT,
+        approved_live_path="context_anchor_retention",
+        network_scope="up_to_two_non_streaming_context_requests",
+    )
+    assert calls == []
+
+
 def test_authorization_allows_full_live_without_touching_factory():
     calls = []
 
@@ -162,4 +204,3 @@ def test_authorization_allows_full_live_without_touching_factory():
         network_scope="approved_subprofile_sequence",
     )
     assert calls == []
-

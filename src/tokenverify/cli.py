@@ -18,10 +18,12 @@ from tokenverify.audit import run_audit
 from tokenverify.models import Rating
 from tokenverify.report import render_markdown
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
+from tokenverify.relay_context import RelayContextTransport
 from tokenverify.relay_live import RelayLiveTransportResponse
 from tokenverify.relay_models import RelayAuditConfigError, RelayAuditProfile, parse_relay_profile, parse_relay_scenario
 from tokenverify.relay_report import render_relay_markdown
 from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, guard_api_key_env_name, sanitize_public_relay_text
+from tokenverify.relay_security import RelaySecurityTransport
 from tokenverify.relay_streaming import RelayStreamEvent, normalize_stream_event
 from tokenverify.security import public_error_summary
 
@@ -326,6 +328,10 @@ def _with_relay_live_transports(
         return replace(request, schema_transport_factory=_default_relay_schema_transport_factory(request))
     if relay_profile == RelayAuditProfile.PRIVACY:
         return replace(request, privacy_transport_factory=_default_relay_privacy_transport_factory(request))
+    if relay_profile == RelayAuditProfile.SECURITY:
+        return replace(request, security_transport_factory=_default_relay_security_transport_factory(request))
+    if relay_profile == RelayAuditProfile.CONTEXT:
+        return replace(request, context_transport_factory=_default_relay_context_transport_factory(request))
     if relay_profile == RelayAuditProfile.FULL:
         return replace(
             request,
@@ -375,6 +381,20 @@ def _default_relay_schema_transport_factory(request: RelayAuditRequest):
 
 def _default_relay_privacy_transport_factory(request: RelayAuditRequest):
     def factory():
+        return _default_relay_live_transport(request)
+
+    return factory
+
+
+def _default_relay_security_transport_factory(request: RelayAuditRequest):
+    def factory() -> RelaySecurityTransport:
+        return _default_relay_live_transport(request)
+
+    return factory
+
+
+def _default_relay_context_transport_factory(request: RelayAuditRequest):
+    def factory() -> RelayContextTransport:
         return _default_relay_live_transport(request)
 
     return factory

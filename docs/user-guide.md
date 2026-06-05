@@ -145,13 +145,44 @@ Relay Audit profiles for ordinary users:
 | `streaming` | You care whether streaming feels complete and not obviously synthetic. |
 | `schema` | You rely on tool calling or JSON structure and want to see whether the relay preserves it. |
 | `privacy` | You care about prompt leakage symptoms, message rewrite, or upstream disclosure behavior. |
+| `security` | You want to check whether a relay preserves prompt boundaries under safe extraction and override pressure. |
+| `context` | You want to check whether a relay preserves early, middle, and late public context anchors instead of silently dropping or rewriting them. |
 | `full` | You want one combined relay report for comparison, filing, or public sharing. |
+
+Run bounded prompt-security checks explicitly:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile security \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+Run bounded context-retention checks explicitly:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --profile context \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
 
 Current Relay Audit boundaries:
 
 - No billing or money-spent estimation.
 - No 8-cycle repeated full-profile deep audit in the current release.
+- `security` provides bounded black-box prompt-boundary evidence; it does not prove malicious intent or complete jailbreak resistance.
+- `context` provides bounded public anchor-retention evidence; it does not measure exact context-window size, estimate billing, or prove malicious truncation.
 - Public relay reports hide full prompt text, model response text, header values, full URLs, local absolute paths, and private challenge answers.
+
+Open-source Core boundary:
+
+- The open-source Core is the local CLI for single-endpoint audits, deterministic fake-runs, public relay profiles, sanitized Markdown reports, and local metadata summaries.
+- Commercial or hosted layers remain outside this Core: restricted challenge-pack governance, batch scanning, dashboards, report comparison databases, machine-readable JSON/API output, hosted monitoring, and enterprise policy layers.
 
 ## No-Key / Offline Behavior
 

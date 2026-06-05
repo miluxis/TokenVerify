@@ -128,6 +128,20 @@ def _safety_note(result: RelayResult, language: str) -> str:
                 if language == "en"
                 else "Live 模式只发送了获批的最小隐私契约请求。"
             )
+        if result.profile == RelayAuditProfile.SECURITY:
+            return (
+                "Live mode made only the approved bounded prompt-security requests. This is not proof of "
+                "malicious intent or complete jailbreak resistance."
+                if language == "en"
+                else "Live 模式只发送了获批的有限提示词安全请求。这不证明中转存在恶意，也不代表具备完整越狱防护。"
+            )
+        if result.profile == RelayAuditProfile.CONTEXT:
+            return (
+                "Live mode made only the approved bounded context-retention requests. This is not a long-context "
+                "benchmark or proof that any loss is caused by the relay."
+                if language == "en"
+                else "Live 模式只发送了获批的有限上下文保留请求。这不是长上下文基准，也不证明任何丢失一定由 relay 造成。"
+            )
         if result.profile == RelayAuditProfile.FULL:
             return (
                 "Full profile combines multiple approved checks. A pass means this endpoint satisfied the bounded "
@@ -142,9 +156,27 @@ def _safety_note(result: RelayResult, language: str) -> str:
             else "Live 模式只发送了获批的最小 general 连通性请求。"
         )
     return (
-        "Fake-run mode was deterministic and no live network request was made."
+        (
+            "Fake-run mode was deterministic and no live network request was made. Security profile output is "
+            "bounded prompt-security evidence, not proof of malicious intent or complete jailbreak resistance."
+            if result.profile == RelayAuditProfile.SECURITY
+            else (
+                "Fake-run mode was deterministic and no live network request was made. Context profile output is "
+                "bounded anchor-retention evidence, not a long-context benchmark."
+                if result.profile == RelayAuditProfile.CONTEXT
+                else "Fake-run mode was deterministic and no live network request was made."
+            )
+        )
         if language == "en"
-        else "Fake-run 为确定性演示，未发送真实网络请求。"
+        else (
+            "Fake-run 为确定性演示，未发送真实网络请求。Security profile 只提供有限的提示词安全证据，不证明中转存在恶意，也不代表具备完整越狱防护。"
+            if result.profile == RelayAuditProfile.SECURITY
+            else (
+                "Fake-run 为确定性演示，未发送真实网络请求。Context profile 只提供有限上下文锚点保留证据，不是长上下文基准。"
+                if result.profile == RelayAuditProfile.CONTEXT
+                else "Fake-run 为确定性演示，未发送真实网络请求。"
+            )
+        )
     )
 
 
