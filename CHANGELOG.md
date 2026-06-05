@@ -1,5 +1,34 @@
 # Changelog
 
+## TokenVerify v0.2.0-preview
+
+This preview release completes the open-source TokenVerify Core CLI for local endpoint and relay auditing.
+
+### Highlights
+
+- Unified `tokenverify audit` entry for provider/model audits and relay contract audits.
+- Relay Audit support for `general`, `streaming`, `schema`, `privacy`, `security`, `context`, and `full` profiles.
+- Deterministic no-network `--fake-run` scenarios for demos and regression testing.
+- Explicit `--live` gate for all real relay network checks.
+- Sanitized Markdown reports with host-only endpoint visibility and public endpoint hashes.
+- Route-prefixed report names: `audit-provider-*` and `audit-relay-*`.
+- English and Chinese README/user guide updates.
+- Open-source Core boundary documented: commercial packs, batch scanning, dashboards, JSON/API output, hosted monitoring, and report databases remain outside this release.
+
+### Safety Boundaries
+
+- Default tests do not send live network traffic.
+- Reports do not expose raw API keys, auth headers, raw prompts, raw model outputs, full endpoint URLs, local absolute paths, or private challenge answers.
+- `security` provides bounded black-box prompt-boundary evidence; it does not prove malicious intent or complete jailbreak resistance.
+- `context` provides bounded public anchor-retention evidence; it does not measure exact context-window size, estimate billing, or prove malicious truncation.
+
+### Verification
+
+Local verification for this release:
+
+- `436 passed, 1 deselected`
+- `git diff --check` passed
+
 ## v0.2.0-preview
 
 Dynamic Challenge Suite public preview.
