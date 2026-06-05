@@ -90,6 +90,7 @@ endpoints:
     assert result.exit_code == 0
     markdown = output_path.read_text(encoding="utf-8")
     assert "本次检测结果：High Trust" in markdown
+    assert "## 欺诈场景总结" in markdown
     assert "Audit result:" not in markdown
 
 

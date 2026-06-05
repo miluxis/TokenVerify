@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from tokenverify.relay_fraud import (
+    collect_relay_fraud_evidence,
+    evaluate_fraud_scenarios,
+    render_fraud_scenario_summary,
+)
 from tokenverify.relay_models import RelayAuditMode, RelayAuditProfile, RelayPackSummary, RelayResult
 from tokenverify.relay_safety import sanitize_public_relay_text
 
@@ -58,11 +63,18 @@ def render_relay_markdown(result: RelayResult, language: str = "en") -> str:
         f"{labels['challenge_pack']}: {_pack_summary_text(result.pack_summary, language)}",
         f"{labels['run_id']}: {sanitize_public_relay_text(result.run_id)}",
         "",
-        labels["relay_verdict_section"],
-        "",
-        f"{labels['verdict']}: **{result.verdict.value}**",
-        f"{labels['risk_level']}: **{result.risk_level.value}**",
     ]
+    fraud_evidence, fraud_sources = collect_relay_fraud_evidence(result)
+    fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
+    lines.extend(render_fraud_scenario_summary(fraud_summary, language=language))
+    lines.extend(
+        [
+            labels["relay_verdict_section"],
+            "",
+            f"{labels['verdict']}: **{result.verdict.value}**",
+            f"{labels['risk_level']}: **{result.risk_level.value}**",
+        ]
+    )
     if result.runtime_category:
         lines.append(f"{labels['runtime_category']}: {sanitize_public_relay_text(result.runtime_category.value)}")
     lines.extend(["", labels["risk_categories"], ""])

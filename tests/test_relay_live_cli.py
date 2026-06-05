@@ -254,6 +254,8 @@ def test_relay_cli_live_general_supports_zh_report_language(tmp_path, monkeypatc
     markdown = output_path.read_text(encoding="utf-8")
     assert "通俗摘要" in markdown
     assert "目标摘要" in markdown
+    assert "## 欺诈场景总结" in markdown
+    assert "模型身份与能力冒充" in markdown
     assert "Relay 结论" in markdown
     assert "复测建议" in markdown
     assert "https://" not in markdown
@@ -351,6 +353,7 @@ def test_relay_cli_api_key_env_guard_blocks_raw_secret_before_other_errors(tmp_p
 
 
 def test_unified_audit_relay_missing_api_key_env_exits_two_before_transport(monkeypatch, tmp_path):
+    monkeypatch.delenv("RELAY_API_KEY", raising=False)
     touched = False
 
     def forbidden_transport(request):
@@ -386,6 +389,7 @@ def test_unified_audit_relay_missing_api_key_env_exits_two_before_transport(monk
 
 
 def test_relay_audit_compat_missing_api_key_env_exits_two_before_transport(monkeypatch, tmp_path):
+    monkeypatch.delenv("RELAY_API_KEY", raising=False)
     touched = False
 
     def forbidden_transport(request):

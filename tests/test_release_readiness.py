@@ -132,6 +132,29 @@ def test_docs_describe_context_profile_for_ordinary_users():
     assert "恶意截断证明" not in docs
 
 
+def test_docs_describe_fraud_scenario_summary_and_boundaries():
+    docs = "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "README.zh-CN.md",
+            "docs/user-guide.md",
+            "docs/relay-audit-user-guide.zh-CN.md",
+        )
+    )
+
+    assert "Fraud Scenario Summary" in docs
+    assert "欺诈场景总结" in docs
+    assert "detected" in docs
+    assert "suspicious" in docs
+    assert "not_detected" in docs
+    assert "not_evaluated" in docs
+    assert "exact upstream model" in docs
+    assert "精确上游模型" in docs
+    assert "billing reconciliation" in docs
+    assert "账单对账" in docs
+
+
 def test_readme_documents_auto_report_names_and_detail_audit():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 

@@ -18,7 +18,7 @@ This preview release completes the open-source TokenVerify Core CLI for local en
 ### Safety Boundaries
 
 - Default tests do not send live network traffic.
-- Reports do not expose raw API keys, auth headers, raw prompts, raw model outputs, full endpoint URLs, local absolute paths, or private challenge answers.
+- Reports do not expose API keys, auth headers, full instruction text, model response text, full endpoint URLs, local absolute paths, or private challenge answers.
 - `security` provides bounded black-box prompt-boundary evidence; it does not prove malicious intent or complete jailbreak resistance.
 - `context` provides bounded public anchor-retention evidence; it does not measure exact context-window size, estimate billing, or prove malicious truncation.
 

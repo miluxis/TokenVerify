@@ -193,6 +193,61 @@ def test_relay_report_renders_sanitized_live_runtime_category():
     assert "sk-secret" not in markdown
 
 
+def test_relay_report_renders_fraud_scenario_summary_with_detected_status_and_breadcrumbs():
+    result = RelayResult(
+        run_id="relay-security-test",
+        profile=RelayAuditProfile.SECURITY,
+        scenario=RelayVerdict.FAIL,
+        mode=RelayAuditMode.LIVE,
+        model="claude-opus-4-5",
+        endpoint_host="relay.example",
+        endpoint_hash="abcdef1234567890",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.FAIL,
+        risk_level=RelayRiskLevel.HIGH,
+        risk_categories=[RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE],
+        evidence=[
+            RelayEvidence(
+                key="security_prompt_extraction",
+                category=RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,
+                status="fail",
+                summary="raw prompt https://relay.example/v1 Authorization: Bearer sk-secret must not appear",
+                metrics={"sensitive_core_echo_detected": True},
+            )
+        ],
+        retest_guidance="Retest.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "## Fraud Scenario Summary" in markdown
+    assert "### Input / Context Integrity Manipulation" in markdown
+    assert "- Status: detected" in markdown
+    assert "Triggered evidence: PROMPT_BOUNDARY_FAILED" in markdown
+    assert "### Privacy And Instruction Leakage" in markdown
+    assert "TokenVerify cannot" in markdown
+    assert "https://" not in markdown
+    assert "sk-secret" not in markdown
+    assert "raw prompt" not in markdown
+
+
+def test_relay_report_renders_fraud_scenario_summary_in_chinese():
+    result = build_fake_relay_result(
+        profile=RelayAuditProfile.STREAMING,
+        scenario=RelayVerdict.PASS,
+        endpoint="https://relay.example/v1",
+        model="example-model",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+    )
+
+    markdown = render_relay_markdown(result, language="zh")
+
+    assert "## 欺诈场景总结" in markdown
+    assert "### 伪流式 / 假 Streaming" in markdown
+    assert "- 状态：" in markdown
+    assert "TokenVerify" in markdown
+
+
 def test_streaming_report_safety_note_and_evidence_are_sanitized():
     result = RelayResult(
         run_id="relay-stream-test",

@@ -53,6 +53,7 @@ def test_markdown_contains_required_sections():
 
     assert "# TokenVerify Audit Report" in markdown
     assert "## Plain-Language Summary" in markdown
+    assert "## Fraud Scenario Summary" in markdown
     assert "## Channel Risk Profile" in markdown
     assert "## Overall Verdict" in markdown
     assert "## Authenticity Assertions" in markdown
@@ -61,6 +62,54 @@ def test_markdown_contains_required_sections():
     assert "## Extended Thinking Probe" in markdown
     assert "## Streaming Metrics" in markdown
     assert "## Configuration Summary" in markdown
+
+
+def test_provider_report_renders_fraud_scenario_summary_from_existing_tags():
+    result = AuditResult(
+        target_summary={
+            "claimed_provider": "anthropic",
+            "claimed_api_shape": "openai-compatible",
+            "claimed_model": "claude-opus-4-5",
+            "base_url_host": "relay.example",
+        },
+        probe_results=[
+            ProbeResult(
+                name="repeated_run_variance",
+                status="warning",
+                evidence=[
+                    EvidenceItem(
+                        key="model_drift",
+                        weight="weak",
+                        passed=False,
+                        message="Model drift observed.",
+                        tags=["MODEL_DRIFT_SUSPECT"],
+                    )
+                ],
+            )
+        ],
+        rating=Rating.LOW_TRUST,
+        score_breakdown={"strong_failed": 1, "weak_failed": 1},
+        verdict=Verdict(
+            rating=Rating.LOW_TRUST,
+            authenticity_score=40,
+            risk_score=80,
+            tags=[
+                "CLAUDE_MODEL_CLAIM_MISMATCH",
+                "DEEPSEEK_REASONING_CONTENT_MISSING",
+                "MODEL_DRIFT_SUSPECT",
+                "OPENAI_OFFICIAL_CHANNEL_MISMATCH",
+            ],
+        ),
+    )
+
+    markdown = render_markdown(result)
+
+    assert "## Fraud Scenario Summary" in markdown
+    assert "### Model Identity And Capability Substitution" in markdown
+    assert "- Status: detected" in markdown
+    assert "MODEL_CLAIM_CONTRADICTION" in markdown
+    assert "### Account-Pool, Reverse-Resource, And Mixed-Routing Drift" in markdown
+    assert "DETAIL_AUDIT_DRIFT_OBSERVED" in markdown
 
 
 def test_markdown_redacts_api_key():

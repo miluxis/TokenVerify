@@ -184,6 +184,14 @@ Open-source Core boundary:
 - The open-source Core is the local CLI for single-endpoint audits, deterministic fake-runs, public relay profiles, sanitized Markdown reports, and local metadata summaries.
 - Commercial or hosted layers remain outside this Core: restricted challenge-pack governance, batch scanning, dashboards, report comparison databases, machine-readable JSON/API output, hosted monitoring, and enterprise policy layers.
 
+Fraud Scenario Summary:
+
+- Reports include a Fraud Scenario Summary that maps existing evidence into user-facing categories such as model identity substitution, channel-source misrepresentation, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+- Scenario statuses are `detected`, `suspicious`, `not_detected`, and `not_evaluated`.
+- `not_evaluated` means the current run did not collect the evidence required for that category.
+- The summary does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology.
+- Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
+
 ## No-Key / Offline Behavior
 
 If no API key is configured, TokenVerify does not send a live provider request. It writes an `Inconclusive` report and returns exit code `3`. This is useful for checking config parsing, report generation, and no-key behavior without live network access.

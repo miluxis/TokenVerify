@@ -168,6 +168,22 @@ def _strip_context_markers(text: str) -> str:
     return decoded
 
 
+def _strip_public_forbidden_phrases(text: str) -> str:
+    if not text:
+        return text
+    forbidden = (
+        "raw prompt",
+        "raw model output",
+        "raw output",
+        "private expected answer",
+        "secret verifier",
+        "verifier expression",
+    )
+    for phrase in forbidden:
+        text = re.sub(re.escape(phrase), "[redacted-sensitive-text]", text, flags=re.IGNORECASE)
+    return text
+
+
 def sanitize_public_relay_text(value: object) -> str:
     text = _strip_security_markers(
         _strip_privacy_canary_markers(
@@ -175,6 +191,7 @@ def sanitize_public_relay_text(value: object) -> str:
         )
     )
     text = _strip_context_markers(text)
+    text = _strip_public_forbidden_phrases(text)
     text = re.sub(r"https?://[^\s`'\"<>]+", lambda match: sanitize_to_fqdn(match.group(0)), text)
     text = re.sub(
         r"(?<!\w)(?:~|/[A-Za-z0-9_.-]+|[A-Za-z]:\\)[^\s`'\"<>]*",

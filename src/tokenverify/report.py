@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 
 from tokenverify.models import AuditResult, ProbeResult, RiskTag, StreamingMetrics
+from tokenverify.relay_fraud import (
+    collect_provider_fraud_evidence,
+    evaluate_fraud_scenarios,
+    render_fraud_scenario_summary,
+)
 from tokenverify.security import public_error_summary, sanitize_public_text
 from tokenverify.upstream_signals import find_suspected_upstream_signals
 
@@ -63,6 +68,9 @@ def render_markdown(result: AuditResult, language: str = "en") -> str:
     lines.extend(_audit_route_section("provider", "provider/model authenticity", language))
     lines.extend(_channel_risk_profile(result, language))
     lines.extend(_suspected_upstream_signals_section(result, language))
+    fraud_evidence, fraud_sources = collect_provider_fraud_evidence(result)
+    fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
+    lines.extend(render_fraud_scenario_summary(fraud_summary, language=language))
     lines.append("## Target Summary")
     for key, value in result.target_summary.items():
         if value is None:

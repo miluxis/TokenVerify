@@ -303,6 +303,14 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 - 当前仓库是本地 CLI Core：单端点 provider/model 审计、单端点 relay 契约审计、确定性 fake-run、当前公开 profiles、脱敏 Markdown 报告和本地 metadata 摘要。
 - 商业或托管层不放进当前开源 Core：私有 pack 治理、签名/加密/授权、批量扫描、dashboard、报告对比数据库、面向自动化的 JSON/API 输出、托管监控和企业策略层。
 
+Fraud Scenario Summary / 欺诈场景总结：
+
+- 报告会把已有技术证据映射成普通用户能理解的欺诈场景，例如模型身份冒充、渠道来源伪装、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖。
+- 场景状态包括 `detected`、`suspicious`、`not_detected` 和 `not_evaluated`。
+- `not_evaluated` 表示本次运行没有收集到评估该类别所需的证据。
+- 这不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。
+- billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
+
 ## 9. 建议测评流程
 
 推荐顺序：

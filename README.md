@@ -161,6 +161,14 @@ Automatic routing rules:
 | `context` | Use this when you want to check whether a relay preserves early, middle, and late public context anchors instead of silently dropping or rewriting them. |
 | `full` | Use this when you want one combined report for record-keeping, comparison, or public presentation. |
 
+## Fraud Scenario Summary
+
+TokenVerify reports include a Fraud Scenario Summary above the detailed technical evidence. It maps existing evidence into user-facing fraud categories such as model identity substitution, channel-source misrepresentation, account-pool or mixed-routing drift, prompt/context manipulation, cached answers masquerading as live inference, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+
+Scenario status values are `detected`, `suspicious`, `not_detected`, and `not_evaluated`. `not_evaluated` means the current run did not collect the evidence required for that category.
+
+The summary is a black-box risk explanation. It does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology. Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
+
 Config-driven relay audit can use this shape:
 
 ```yaml

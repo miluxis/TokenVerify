@@ -146,6 +146,14 @@ provider/model 真伪审计，把 base-url/model 形态输入路由到 relay 契
 | `context` | 当你想检查 relay 是否保留早段、中段和末段公开上下文锚点，而不是静默丢弃或改写它们时使用。 |
 | `full` | 当你要一次性生成综合报告，用于留档、对比或公开展示时使用。 |
 
+## 欺诈场景总结
+
+TokenVerify 报告会在详细技术证据之前展示 Fraud Scenario Summary / 欺诈场景总结。它会把已有证据映射成普通用户能理解的风险类别，例如模型身份冒充、渠道来源伪装、号池或混池漂移、Prompt/Context 被改写、缓存答案冒充实时推理、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖等。
+
+场景状态包括 `detected`、`suspicious`、`not_detected` 和 `not_evaluated`。`not_evaluated` 表示本次运行没有收集到评估该类别所需的证据。
+
+这是一层黑盒风险解释，不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
+
 通过 YAML 配置运行 relay audit 可以使用这种形态：
 
 ```yaml
