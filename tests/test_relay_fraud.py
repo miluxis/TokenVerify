@@ -24,13 +24,14 @@ from tokenverify.relay_models import (
 def test_fraud_registry_has_initial_ten_unique_scenarios_with_languages():
     registry = fraud_scenario_registry()
 
-    assert len(registry) == 10
-    assert len({scenario.scenario_id for scenario in registry}) == 10
+    assert len(registry) == 11
+    assert len({scenario.scenario_id for scenario in registry}) == 11
     assert {scenario.scenario_id for scenario in registry} == {
         "model_identity_and_capability_substitution",
         "channel_source_and_compliance_misrepresentation",
         "account_pool_reverse_resource_and_mixed_routing_drift",
         "prompt_context_integrity_manipulation",
+        "thinking_reasoning_capability_forgery",
         "cached_answers_masquerading_as_live_inference",
         "fake_or_degraded_streaming",
         "schema_tool_calling_contract_breakage",
@@ -71,6 +72,63 @@ def test_missing_required_sources_are_not_evaluated_not_passed():
 
     assert results.by_id["schema_tool_calling_contract_breakage"].status == FraudScenarioStatus.NOT_EVALUATED
     assert results.by_id["billing_and_usage_opacity"].status == FraudScenarioStatus.NOT_EVALUATED
+
+
+def test_render_not_evaluated_does_not_print_triggered_conclusion():
+    summary = evaluate_fraud_scenarios([], available_sources=set())
+
+    rendered = "\n".join(render_fraud_scenario_summary(summary, language="zh", report_kind="full"))
+
+    assert "not_evaluated" not in rendered
+    assert "已观察到与声明模型或能力存在强矛盾" not in rendered
+    assert "insufficient_evidence" in rendered
+
+
+def test_render_not_detected_uses_non_triggered_conclusion():
+    summary = evaluate_fraud_scenarios([], available_sources={"schema"})
+
+    rendered = "\n".join(render_fraud_scenario_summary(summary))
+
+    assert "### Schema / Tool-Calling Contract Breakage" in rendered
+    assert "- Status: not_detected" in rendered
+    assert "Schema or tool-calling contract breakage observed." not in rendered
+    assert "No matching evidence was observed in the relevant checks that ran." in rendered
+
+
+def test_insufficient_evidence_uses_actionable_drift_check_text():
+    summary = evaluate_fraud_scenarios(
+        [],
+        available_sources={"general", "streaming", "schema", "privacy", "security", "context"},
+    )
+
+    rendered_zh = "\n".join(render_fraud_scenario_summary(summary, language="zh", report_kind="full"))
+    rendered_en = "\n".join(render_fraud_scenario_summary(summary, language="en", report_kind="full"))
+
+    assert "- 状态：**insufficient_evidence**" in rendered_zh
+    assert "- Status：**insufficient_evidence**" in rendered_en
+    assert "--drift-check yes" in rendered_zh
+    assert "--drift-check yes" in rendered_en
+    assert "--repeat 8" not in rendered_zh
+    assert "--repeat 8" not in rendered_en
+
+
+def test_enabled_drift_check_without_drift_renders_not_detected():
+    summary = evaluate_fraud_scenarios(
+        [],
+        available_sources={"general", "streaming", "schema", "privacy", "security", "context", "drift"},
+    )
+
+    rendered_zh = "\n".join(render_fraud_scenario_summary(summary, language="zh", report_kind="full"))
+    rendered_en = "\n".join(render_fraud_scenario_summary(summary, language="en", report_kind="full"))
+
+    assert "### 3. 号池、逆向与混池漂移" in rendered_zh
+    assert "- 状态：**not_detected**" in rendered_zh
+    assert "已启用漂移检测" in rendered_zh
+    assert "--drift-check yes" not in rendered_zh
+    assert "### 3. Account-Pool, Reverse-Resource, And Mixed-Routing Drift" in rendered_en
+    assert "- Status：**not_detected**" in rendered_en
+    assert "Drift checking ran" in rendered_en
+    assert "--drift-check yes" not in rendered_en
 
 
 def test_scenario_evaluator_failure_is_isolated_and_sanitized():

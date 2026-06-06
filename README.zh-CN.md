@@ -64,6 +64,7 @@ level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度�
 Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径。它支持
 确定性的 fake-run 演示，也支持经过 `--live` 明确授权的真实检测。当前 profile
 包括 `general`、`streaming`、`schema`、`privacy`、`security`、`context` 和 `full`。
+对普通用户来说，`full` 是默认公开报告路径；单个 profile 是高级技术诊断。
 
 运行一次不发网络请求的确定性演示：
 
@@ -71,7 +72,6 @@ Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径�
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
-  --profile general \
   --fake-run suspicious
 ```
 
@@ -83,9 +83,19 @@ export RELAY_API_KEY="your-relay-key"
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
-  --profile full \
   --api-key-env RELAY_API_KEY \
   --live
+```
+
+当你关注号池轮换、逆向资源、fallback 或混池漂移时，可以显式开启有界漂移检查：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --api-key-env RELAY_API_KEY \
+  --live \
+  --drift-check yes
 ```
 
 当你关注安全提取/覆盖压力下的提示词边界时，可以运行：
@@ -136,21 +146,24 @@ provider/model 真伪审计，把 base-url/model 形态输入路由到 relay 契
 
 ## Relay Audit Profile 的普通用户场景
 
+`full` 是推荐默认值，会生成场景优先的综合报告。单个 profile 会生成技术
+profile 报告，只说明它能支撑哪些场景范围，不会宣称某个完整欺诈场景通过或失败。
+
 | Profile | 普通用户场景 |
 | --- | --- |
+| `full` | 默认选择。用于一次性生成综合场景报告，适合留档、对比或公开展示。 |
 | `general` | 先确认这个 relay 能不能基本正常返回兼容包络。 |
 | `streaming` | 当你关心打字机式流输出是否稳定、完整、不像伪流式时使用。 |
 | `schema` | 当你的工作流依赖 tool calling、function calling 或 JSON 结构，而且你不希望 relay 把结构弄坏时使用。 |
 | `privacy` | 当你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露时使用。 |
 | `security` | 当你想检查 relay 在安全的提取/覆盖压力下是否仍保留提示词边界时使用。 |
 | `context` | 当你想检查 relay 是否保留早段、中段和末段公开上下文锚点，而不是静默丢弃或改写它们时使用。 |
-| `full` | 当你要一次性生成综合报告，用于留档、对比或公开展示时使用。 |
 
 ## 欺诈场景总结
 
-TokenVerify 报告会在详细技术证据之前展示 Fraud Scenario Summary / 欺诈场景总结。它会把已有证据映射成普通用户能理解的风险类别，例如模型身份冒充、渠道来源伪装、号池或混池漂移、Prompt/Context 被改写、缓存答案冒充实时推理、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖等。
+Full relay 报告会在详细技术证据之前展示 Fraud Scenario Summary / 欺诈场景总结。它会把已有证据映射成普通用户能理解的风险类别，例如模型身份冒充、渠道来源伪装、号池或混池漂移、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖等。
 
-场景状态包括 `detected`、`suspicious`、`not_detected` 和 `not_evaluated`。`not_evaluated` 表示本次运行没有收集到评估该类别所需的证据。
+场景状态包括 `detected`、`suspicious`、`not_detected` 和 `insufficient_evidence`。`insufficient_evidence` 表示该场景与当前报告相关，但本次证据还不够，例如没有开启漂移检查。账单对账、缓存重放数据库等 future/commercial 类别默认不会作为公开报告行展示。
 
 这是一层黑盒风险解释，不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
 
@@ -164,6 +177,7 @@ relay:
   profile: full
   api_key_env: RELAY_API_KEY
   live: true
+  drift_check: no
 ```
 
 ## 支持的检测路径
@@ -183,7 +197,7 @@ relay:
 - 单次 timeout、断连或 TTFT 尖峰不会被当作渠道作弊证明，只会作为运行异常或弱风险线索。
 - Dynamic challenge pack 是本地确定性探针，不是对未支持模型家族的 provider-specific audit。
 - Relay Audit 当前不做计费金额或账单估算。
-- Relay Audit 当前不做 8 次 full profile 深度循环。
+- Relay Audit 不会静默执行重复 full profile 深度循环；需要用户显式使用 `--drift-check yes` 开启有界漂移采样。
 - Relay Audit `security` 只提供提示词边界的有限黑盒证据，不证明中转存在恶意，也不代表具备完整越狱防护。
 - Relay Audit `context` 只提供有限的上下文锚点保留证据，不测量精确上下文窗口，不估算计费，也不证明存在恶意截断。
 

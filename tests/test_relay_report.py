@@ -25,15 +25,11 @@ def test_relay_report_renders_required_sections_and_sanitized_endpoint():
 
     markdown = render_relay_markdown(result)
 
-    assert "# TokenVerify Relay Audit Report" in markdown
-    assert "Plain-Language Summary" in markdown
-    assert "Audit Route" in markdown
-    assert "relay contract/safety" in markdown
-    assert "Target Summary" in markdown
-    assert "Relay Verdict" in markdown
-    assert "Risk Categories" in markdown
+    assert "# TokenVerify Relay Technical Profile Report" in markdown
+    assert "Technical Result" in markdown
+    assert "Supported Scenario Scope" in markdown
     assert "Sanitized Evidence" in markdown
-    assert "Retest Guidance" in markdown
+    assert "Method Note" in markdown
     assert "Fake-run mode was deterministic and no live network request was made." in markdown
     assert "api.relay.com" in markdown
     assert result.endpoint_hash in markdown
@@ -54,13 +50,11 @@ def test_relay_report_supports_chinese_language():
 
     markdown = render_relay_markdown(result, language="zh")
 
-    assert "# TokenVerify Relay Audit Report" in markdown
-    assert "通俗摘要" in markdown
-    assert "目标摘要" in markdown
-    assert "Relay 结论" in markdown
-    assert "风险类别" in markdown
+    assert "# TokenVerify Relay Technical Profile Report" in markdown
+    assert "技术检查结果" in markdown
+    assert "支撑场景范围" in markdown
     assert "脱敏证据" in markdown
-    assert "复测建议" in markdown
+    assert "方法说明" in markdown
     assert "Fake-run 为确定性演示，未发送真实网络请求。" in markdown
     assert "api.relay.com" in markdown
     assert "https://" not in markdown
@@ -220,12 +214,9 @@ def test_relay_report_renders_fraud_scenario_summary_with_detected_status_and_br
 
     markdown = render_relay_markdown(result)
 
-    assert "## Fraud Scenario Summary" in markdown
-    assert "### Input / Context Integrity Manipulation" in markdown
-    assert "- Status: detected" in markdown
-    assert "Triggered evidence: PROMPT_BOUNDARY_FAILED" in markdown
-    assert "### Privacy And Instruction Leakage" in markdown
-    assert "TokenVerify cannot" in markdown
+    assert "# TokenVerify Relay Technical Profile Report" in markdown
+    assert "Supported Scenario Scope" in markdown
+    assert "Prompt-security boundary" in markdown
     assert "https://" not in markdown
     assert "sk-secret" not in markdown
     assert "raw prompt" not in markdown
@@ -242,9 +233,8 @@ def test_relay_report_renders_fraud_scenario_summary_in_chinese():
 
     markdown = render_relay_markdown(result, language="zh")
 
-    assert "## 欺诈场景总结" in markdown
-    assert "### 伪流式 / 假 Streaming" in markdown
-    assert "- 状态：" in markdown
+    assert "# TokenVerify Relay Technical Profile Report" in markdown
+    assert "支撑场景范围" in markdown
     assert "TokenVerify" in markdown
 
 
@@ -400,9 +390,9 @@ def test_full_profile_report_includes_runtime_notice_and_sanitizes_mixed_shells(
 
     markdown = render_relay_markdown(result)
 
-    assert "Full profile uses multiple approved checks" in markdown
-    assert "Serial execution can make timeout delays add up across subprofiles" in markdown
-    assert "planned_live_request_count" in markdown
+    assert "## Plain-Language Conclusion" in markdown
+    assert "## Fraud Scenario Summary" in markdown
+    assert "## Executed Technical Checks" in markdown
     assert "raw stream chunk must not appear" not in markdown
     assert "raw schema args must not appear" not in markdown
     assert "TV_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
@@ -411,6 +401,53 @@ def test_full_profile_report_includes_runtime_notice_and_sanitizes_mixed_shells(
     assert '{"messages"' not in markdown
     assert 'data: {"choices"' not in markdown
     assert '{"error"' not in markdown
+
+
+def test_full_profile_report_upgrades_overall_judgment_from_scenario_signals():
+    result = RelayResult(
+        run_id="relay-full-scenario-attention",
+        profile=RelayAuditProfile.FULL,
+        scenario=RelayVerdict.PASS,
+        mode=RelayAuditMode.LIVE,
+        model="claude-opus-4-5-20251101",
+        endpoint_host="hk.hboom.ai",
+        endpoint_hash="0edc300d891a87a7",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        verdict=RelayVerdict.PASS,
+        risk_level=RelayRiskLevel.LOW,
+        risk_categories=[],
+        evidence=[
+            RelayEvidence(
+                key="full_profile_composite_verdict",
+                category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+                status="observed",
+                summary="Composite verdict was derived from sanitized subprofile verdicts.",
+                metrics={
+                    "general": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                    "streaming": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                    "schema": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                    "privacy": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                    "security": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                    "context": {"verdict": "pass", "risk_level": "low", "runtime_category": None},
+                },
+            ),
+            RelayEvidence(
+                key="relay_identity_candidate_signals",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="suspicious",
+                summary="Model identity signals did not match the claimed family.",
+                metrics={},
+            ),
+        ],
+        retest_guidance="Rerun full profile.",
+    )
+
+    markdown = render_relay_markdown(result)
+
+    assert "Overall judgment：**Suspicious**" in markdown
+    assert "Risk level：**medium**" in markdown
+    assert "Model Identity And Capability Substitution" in markdown
+    assert "Status：**suspicious**" in markdown
 
 
 def test_full_profile_report_redacts_privacy_canary_case_and_unicode_variants():
@@ -446,7 +483,6 @@ def test_full_profile_report_redacts_privacy_canary_case_and_unicode_variants():
     assert "TV_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
     assert "tv_privacy_marker_do_not_echo" not in markdown
     assert "\\u0054\\u0056_PRIVACY_MARKER_DO_NOT_ECHO" not in markdown
-    assert "[redacted-privacy-marker]" in markdown
 
 
 def test_relay_report_removes_security_markers_from_public_evidence():

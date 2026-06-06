@@ -34,6 +34,7 @@ relay:
   profile: full
   api_key_env: RELAY_API_KEY
   live: true
+  drift_check: no
 ```
 
 ## Claude Native
@@ -87,7 +88,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 
 For R1 claims, TokenVerify expects native `reasoning_content` evidence on non-trivial reasoning prompts. Missing native R1 reasoning fields can lower trust. DeepSeek-compatible relays are not treated as official DeepSeek unless the channel evidence supports that claim.
 
-Provider reports are written automatically under `reports/audit-provider-[model-name]-[date].md`. Relay reports use `reports/audit-relay-[model-name]-[date].md`. Detail audit uses 8 samples internally to look for relay, reverse-channel, account-pool, latency-variance, and model-drift risk signals.
+Provider reports are written automatically under `reports/audit-provider-[model-name]-[date].md`. Full relay reports use `reports/audit-relay-[model-name]-[date].md`. Single relay technical profiles include the profile name, for example `reports/audit-relay-streaming-[model-name]-[date].md`. Provider detail audit uses 8 samples internally to look for relay, reverse-channel, account-pool, latency-variance, and model-drift risk signals.
 
 Report explanations are English by default. Use `--language zh` for a Chinese report:
 
@@ -132,22 +133,25 @@ Use direct relay inputs when your main question is not "is this endpoint really 
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
-  --profile full \
   --api-key-env RELAY_API_KEY \
   --live
 ```
 
 Relay Audit profiles for ordinary users:
 
+`full` is the recommended default and produces the scenario-first public report.
+Single profiles are advanced technical diagnostics; their reports list supported
+scenario scope without claiming a whole fraud scenario passed or failed.
+
 | Profile | Use this when |
 | --- | --- |
+| `full` | Default. You want one combined relay report for comparison, filing, or public sharing. |
 | `general` | You want a basic compatibility and reachability check before deeper work. |
 | `streaming` | You care whether streaming feels complete and not obviously synthetic. |
 | `schema` | You rely on tool calling or JSON structure and want to see whether the relay preserves it. |
 | `privacy` | You care about prompt leakage symptoms, message rewrite, or upstream disclosure behavior. |
 | `security` | You want to check whether a relay preserves prompt boundaries under safe extraction and override pressure. |
 | `context` | You want to check whether a relay preserves early, middle, and late public context anchors instead of silently dropping or rewriting them. |
-| `full` | You want one combined relay report for comparison, filing, or public sharing. |
 
 Run bounded prompt-security checks explicitly:
 
@@ -171,10 +175,22 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --live
 ```
 
+Enable bounded drift checking when your concern is account-pool rotation,
+reverse resources, fallback, or mixed-provider routing:
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://relay.example/v1 \
+  --model example-model \
+  --api-key-env RELAY_API_KEY \
+  --live \
+  --drift-check yes
+```
+
 Current Relay Audit boundaries:
 
 - No billing or money-spent estimation.
-- No 8-cycle repeated full-profile deep audit in the current release.
+- No silent repeated full-profile deep audit. Use `--drift-check yes` when you explicitly want bounded repeated sampling for account-pool, reverse-resource, fallback, or mixed-routing drift signals.
 - `security` provides bounded black-box prompt-boundary evidence; it does not prove malicious intent or complete jailbreak resistance.
 - `context` provides bounded public anchor-retention evidence; it does not measure exact context-window size, estimate billing, or prove malicious truncation.
 - Public relay reports hide full prompt text, model response text, header values, full URLs, local absolute paths, and private challenge answers.
@@ -186,9 +202,9 @@ Open-source Core boundary:
 
 Fraud Scenario Summary:
 
-- Reports include a Fraud Scenario Summary that maps existing evidence into user-facing categories such as model identity substitution, channel-source misrepresentation, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
-- Scenario statuses are `detected`, `suspicious`, `not_detected`, and `not_evaluated`.
-- `not_evaluated` means the current run did not collect the evidence required for that category.
+- Full relay reports include a Fraud Scenario Summary that maps existing evidence into user-facing categories such as model identity substitution, channel-source misrepresentation, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+- Scenario statuses are `detected`, `suspicious`, `not_detected`, and `insufficient_evidence`.
+- `insufficient_evidence` means the scenario is relevant but the current run did not collect enough evidence, for example when drift checking was not enabled.
 - The summary does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology.
 - Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
 

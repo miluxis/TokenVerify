@@ -46,7 +46,6 @@ fake-run 不会发送任何真实请求，适合确认报告生成和展示格�
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://relay.example/v1 \
   --model example-model \
-  --profile general \
   --fake-run suspicious
 ```
 
@@ -72,7 +71,6 @@ export RELAY_API_KEY="你的真实 key"
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
-  --profile general \
   --api-key-env RELAY_API_KEY \
   --live
 ```
@@ -89,6 +87,7 @@ relay:
   profile: full
   api_key_env: RELAY_API_KEY
   live: true
+  drift_check: no
 ```
 
 运行：
@@ -99,17 +98,20 @@ PYTHONPATH=src python3 -m tokenverify.cli audit --config ./relay-audit.yaml
 
 ## 4. 选择测评 profile
 
+普通用户建议默认使用 `full`。它会生成场景优先的综合报告。单个 profile
+属于高级技术诊断，报告会说明它支撑的场景范围，但不会宣称某个完整欺诈场景通过或失败。
+
 普通用户场景表：
 
 | Profile | 普通用户场景 |
 | --- | --- |
+| `full` | 默认选择。用于一次性生成综合场景报告，适合留档、对比或公开展示。 |
 | `general` | 先确认这个 relay 能不能正常返回兼容包络。 |
 | `streaming` | 你关心流式输出是否稳定、完整、不像伪流式。 |
 | `schema` | 你依赖 tool calling、function calling 或 JSON 结构，不希望 relay 把结构弄坏。 |
 | `privacy` | 你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露。 |
 | `security` | 你想检查 relay 在安全的提取/覆盖压力下是否仍保留提示词边界。 |
 | `context` | 你想检查 relay 是否保留早段、中段和末段公开上下文锚点，而不是静默丢弃或改写它们。 |
-| `full` | 你要一次性生成综合报告，用于留档、对比或公开展示。 |
 
 ### general
 
@@ -198,7 +200,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 按固定顺序串行运行：
 
 ```text
-general -> streaming -> schema -> privacy
+general -> streaming -> schema -> privacy -> security -> context
 ```
 
 适合一次性出综合报告。由于是串行执行，如果目标 relay 很慢，各子检查的超时会线性叠加。
@@ -207,9 +209,19 @@ general -> streaming -> schema -> privacy
 PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
-  --profile full \
   --api-key-env RELAY_API_KEY \
   --live
+```
+
+如果你关注号池、逆向资源、fallback 或混池漂移，可以显式开启有界漂移检查：
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --api-key-env RELAY_API_KEY \
+  --live \
+  --drift-check yes
 ```
 
 ## 5. 使用本地私有 pack metadata
@@ -305,9 +317,9 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 
 Fraud Scenario Summary / 欺诈场景总结：
 
-- 报告会把已有技术证据映射成普通用户能理解的欺诈场景，例如模型身份冒充、渠道来源伪装、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖。
-- 场景状态包括 `detected`、`suspicious`、`not_detected` 和 `not_evaluated`。
-- `not_evaluated` 表示本次运行没有收集到评估该类别所需的证据。
+- Full relay 报告会把已有技术证据映射成普通用户能理解的欺诈场景，例如模型身份冒充、渠道来源伪装、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖。
+- 场景状态包括 `detected`、`suspicious`、`not_detected` 和 `insufficient_evidence`。
+- `insufficient_evidence` 表示该场景与当前报告相关，但本次证据还不够，例如没有开启漂移检查。
 - 这不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。
 - billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
 
@@ -316,14 +328,10 @@ Fraud Scenario Summary / 欺诈场景总结：
 推荐顺序：
 
 1. 先跑 `fake-run suspicious`，确认报告输出路径和格式。
-2. 跑 `general --live`，确认 endpoint/key/model 可用。
-3. 跑 `streaming --live`，检查 SSE 行为。
-4. 跑 `schema --live`，检查 tool/schema 保真。
-5. 跑 `privacy --live`，检查隐私泄漏和改写。
-6. 跑 `security --live`，检查提示词边界安全。
-7. 跑 `context --live`，检查公开上下文锚点保留。
-8. 最后跑 `full --live`，生成综合报告。
-9. 对 `suspicious` 或 `fail` 的目标，换时间复测一次，避免把临时故障当长期结论。
+2. 跑默认 `full --live`，生成综合场景报告。
+3. 如果怀疑号池、逆向资源、fallback 或混池漂移，再跑 `full --live --drift-check yes`。
+4. 如果需要定位某个技术问题，再单独跑 `streaming`、`schema`、`privacy`、`security` 或 `context`。
+5. 对 `suspicious` 或 `fail` 的目标，换时间复测一次，避免把临时故障当长期结论。
 
 ## 10. 常见问题
 
@@ -342,7 +350,7 @@ Fraud Scenario Summary / 欺诈场景总结：
 当前不会做的事情：
 
 - 不做计费金额或账单估算。
-- 不做 8 次 full profile 深度循环。
+- 不会静默执行重复 full profile 深度循环；需要用户显式使用 `--drift-check yes` 开启有界漂移采样。
 
 ### 报告里为什么没有原始模型回答？
 

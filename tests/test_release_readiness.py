@@ -148,7 +148,8 @@ def test_docs_describe_fraud_scenario_summary_and_boundaries():
     assert "detected" in docs
     assert "suspicious" in docs
     assert "not_detected" in docs
-    assert "not_evaluated" in docs
+    assert "insufficient_evidence" in docs
+    assert "--drift-check yes" in docs
     assert "exact upstream model" in docs
     assert "精确上游模型" in docs
     assert "billing reconciliation" in docs

@@ -23,9 +23,19 @@ def build_fake_relay_result(
     endpoint: str,
     model: str,
     pack_summary: RelayPackSummary,
+    drift_check: bool = False,
 ) -> RelayResult:
     endpoint_host = sanitize_to_fqdn(endpoint)
     endpoint_hash = hash_relay_endpoint(endpoint)
+    if profile == RelayAuditProfile.FULL:
+        return _build_full_fake_result(
+            scenario=scenario,
+            endpoint_host=endpoint_host,
+            endpoint_hash=endpoint_hash,
+            model=model,
+            pack_summary=pack_summary,
+            drift_check=drift_check,
+        )
     if profile == RelayAuditProfile.SECURITY:
         return _build_security_fake_result(
             scenario=scenario,
@@ -78,6 +88,120 @@ def build_fake_relay_result(
         retest_guidance=_retest_guidance(scenario),
         inconclusive_reason=inconclusive_reason,
     )
+
+
+def _build_full_fake_result(
+    *,
+    scenario: RelayVerdict,
+    endpoint_host: str,
+    endpoint_hash: str,
+    model: str,
+    pack_summary: RelayPackSummary,
+    drift_check: bool,
+) -> RelayResult:
+    evidence = _full_fake_evidence(scenario, model, drift_check=drift_check)
+    risk_categories = sorted({item.category for item in evidence}, key=lambda item: item.value)
+    inconclusive_reason = None
+    runtime_category = None
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        runtime_category = RelayRuntimeCategory.TIMEOUT
+        inconclusive_reason = "The fake full-profile scenario represents a sanitized runtime interruption."
+    return RelayResult(
+        run_id=_run_id(RelayAuditProfile.FULL, scenario, endpoint_hash, model, pack_summary.pack_hash),
+        profile=RelayAuditProfile.FULL,
+        scenario=scenario,
+        mode=RelayAuditMode.FAKE,
+        model=sanitize_public_relay_text(model),
+        endpoint_host=endpoint_host,
+        endpoint_hash=endpoint_hash,
+        pack_summary=pack_summary,
+        verdict=scenario,
+        risk_level=_risk_level_for(scenario),
+        risk_categories=risk_categories,
+        evidence=evidence,
+        retest_guidance="Use live mode for bounded full-profile relay evidence.",
+        inconclusive_reason=inconclusive_reason,
+        runtime_category=runtime_category,
+    )
+
+
+def _full_fake_evidence(scenario: RelayVerdict, model: str, *, drift_check: bool) -> list[RelayEvidence]:
+    base = [
+        RelayEvidence(
+            key="full_profile_composite_verdict",
+            category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+            status="observed",
+            summary="Composite verdict was derived from sanitized subprofile verdicts.",
+            metrics={
+                "general": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["minimal_live_connectivity"]},
+                "streaming": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["stream_content_delta", "stream_terminal_finish"]},
+                "schema": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["schema_tool_envelope", "schema_arguments_json"]},
+                "privacy": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["privacy_marker_leakage"]},
+                "security": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["security_prompt_extraction", "security_override_resistance"]},
+                "context": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["context_anchor_retention"]},
+            },
+        ),
+        RelayEvidence(
+            key="drift_check_summary",
+            category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+            status="pass" if drift_check else "insufficient_evidence",
+            summary=(
+                "Deterministic fake drift-check sampling completed."
+                if drift_check
+                else "Drift check was not enabled for this run."
+            ),
+            metrics=(
+                {
+                    "drift_check_enabled": True,
+                    "sample_count": 8,
+                    "suspicious_sample_count": 0,
+                    "failed_sample_count": 0,
+                    "inconclusive_sample_count": 0,
+                }
+                if drift_check
+                else {"drift_check_enabled": False, "sample_count": 0, "recommended_action": "--drift-check yes"}
+            ),
+        ),
+    ]
+    if scenario == RelayVerdict.SUSPICIOUS:
+        base.append(
+            RelayEvidence(
+                key="relay_identity_candidate_signals",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="suspicious",
+                summary="Claimed model behavior diverged from Claude-like expectations.",
+                metrics={
+                    "claimed_model": sanitize_public_relay_text(model),
+                    "claude_reasoning_signal": "missing",
+                    "candidate_signals": [
+                        {"label": "GLM-like", "confidence": "medium"},
+                        {"label": "Qwen-like", "confidence": "low-to-medium"},
+                        {"label": "Claude Opus-like", "confidence": "low"},
+                    ],
+                },
+            )
+        )
+    if scenario == RelayVerdict.FAIL:
+        base.append(
+            RelayEvidence(
+                key="schema_preservation_failure",
+                category=RelayRiskCategory.SCHEMA_TOOL_REWRITE,
+                status="fail",
+                summary="Deterministic fake observation shows required structured fields were rewritten before verification.",
+                metrics={"tool_call_observed": False, "arguments_json_parseable": False},
+            )
+        )
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        base.append(
+            RelayEvidence(
+                key="runtime_not_conclusive",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="Deterministic fake observation represents a timeout before a relay judgment could be made.",
+                metrics={"runtime_condition": "sanitized_unavailable"},
+            )
+        )
+    return base
 
 
 def _scenario_evidence(scenario: RelayVerdict) -> list[RelayEvidence]:

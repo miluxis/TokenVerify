@@ -11,6 +11,7 @@ from tokenverify.relay_models import (
     RelayRiskLevel,
     RelayRuntimeCategory,
     RelayVerdict,
+    parse_relay_drift_check,
     parse_relay_profile,
     parse_relay_scenario,
 )
@@ -47,6 +48,18 @@ def test_fake_scenario_validation_accepts_and_rejects_values():
     assert "Unknown relay fake-run scenario" in str(exc_info.value)
     assert "pass, suspicious, fail, inconclusive" in str(exc_info.value)
     assert "demo" not in str(exc_info.value)
+
+
+def test_parse_relay_drift_check_accepts_yes_no():
+    assert parse_relay_drift_check("yes") is True
+    assert parse_relay_drift_check("YES") is True
+    assert parse_relay_drift_check("no") is False
+    assert parse_relay_drift_check("No") is False
+
+
+def test_parse_relay_drift_check_rejects_unknown_value():
+    with pytest.raises(RelayAuditConfigError):
+        parse_relay_drift_check("maybe")
 
 
 def test_relay_result_contract_contains_required_public_fields():

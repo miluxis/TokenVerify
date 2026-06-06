@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date
 
 from typer.testing import CliRunner
 
@@ -198,6 +199,22 @@ endpoints:
     assert result.exit_code == 0
     assert existing_path.read_text(encoding="utf-8") == "existing"
     assert (tmp_path / "reports" / "audit-provider-gpt-5-1-2026-05-29-2.md").exists()
+
+
+def test_relay_single_profile_auto_filename_includes_profile(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    path = cli_module._next_available_relay_report_path("claude opus", date(2026, 6, 6), profile="schema")
+
+    assert path == Path("reports/audit-relay-schema-claude-opus-2026-06-06.md")
+
+
+def test_relay_full_auto_filename_keeps_existing_shape(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    path = cli_module._next_available_relay_report_path("claude opus", date(2026, 6, 6), profile="full")
+
+    assert path == Path("reports/audit-relay-claude-opus-2026-06-06.md")
 
 
 def test_cli_forwards_repeat_count_to_audit(tmp_path, monkeypatch):

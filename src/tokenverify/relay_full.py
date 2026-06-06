@@ -21,6 +21,8 @@ FULL_SUBPROFILE_ORDER = (
     RelayAuditProfile.STREAMING,
     RelayAuditProfile.SCHEMA,
     RelayAuditProfile.PRIVACY,
+    RelayAuditProfile.SECURITY,
+    RelayAuditProfile.CONTEXT,
 )
 
 FullSubprofileRunner = Callable[[RelayAuditProfile], RelayResult]
@@ -68,6 +70,8 @@ def run_full_live_check(
     model: str,
     pack_summary: RelayPackSummary,
     subprofile_runner: FullSubprofileRunner,
+    drift_check: bool = False,
+    drift_samples: list[RelayResult] | None = None,
 ) -> RelayResult:
     if authorization.profile != RelayAuditProfile.FULL:
         raise RelayFullRuntimeError("Full profile runner requires full live authorization.") from None
@@ -106,7 +110,7 @@ def run_full_live_check(
         verdict=verdict,
         risk_level=risk_level,
         risk_categories=_collect_risk_categories(results),
-        evidence=_build_full_evidence(results, summaries),
+        evidence=_build_full_evidence(results, summaries, drift_check=drift_check, drift_samples=drift_samples or []),
         retest_guidance="Rerun full profile after resolving any inconclusive subprofile runtime causes.",
         inconclusive_reason=inconclusive_reason,
         runtime_category=RelayRuntimeCategory.UNKNOWN_RUNTIME_ERROR if inconclusive_count else None,
@@ -139,7 +143,13 @@ def _collect_risk_categories(results: list[RelayResult]) -> list[RelayRiskCatego
     return categories
 
 
-def _build_full_evidence(results: list[RelayResult], summaries: list[RelayFullSubprofileSummary]) -> list[RelayEvidence]:
+def _build_full_evidence(
+    results: list[RelayResult],
+    summaries: list[RelayFullSubprofileSummary],
+    *,
+    drift_check: bool = False,
+    drift_samples: list[RelayResult] | None = None,
+) -> list[RelayEvidence]:
     verdict_counts = {
         "subprofiles_requested": len(FULL_SUBPROFILE_ORDER),
         "subprofiles_completed": len(results),
@@ -161,7 +171,7 @@ def _build_full_evidence(results: list[RelayResult], summaries: list[RelayFullSu
         }
         for summary in summaries
     }
-    return [
+    evidence = [
         RelayEvidence(
             key="full_profile_orchestration",
             category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
@@ -190,6 +200,44 @@ def _build_full_evidence(results: list[RelayResult], summaries: list[RelayFullSu
             },
         ),
     ]
+    evidence.append(_build_drift_evidence(drift_check, drift_samples or []))
+    return evidence
+
+
+def _build_drift_evidence(drift_check: bool, drift_samples: list[RelayResult]) -> RelayEvidence:
+    if not drift_check:
+        return RelayEvidence(
+            key="drift_check_summary",
+            category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+            status="insufficient_evidence",
+            summary="Drift check was not enabled for this run.",
+            metrics={
+                "drift_check_enabled": False,
+                "sample_count": 0,
+                "recommended_action": "--drift-check yes",
+            },
+        )
+    suspicious_count = sum(1 for sample in drift_samples if sample.verdict == RelayVerdict.SUSPICIOUS)
+    fail_count = sum(1 for sample in drift_samples if sample.verdict == RelayVerdict.FAIL)
+    inconclusive_count = sum(1 for sample in drift_samples if sample.verdict == RelayVerdict.INCONCLUSIVE)
+    status = "pass"
+    if fail_count:
+        status = "fail"
+    elif suspicious_count or inconclusive_count:
+        status = "suspicious"
+    return RelayEvidence(
+        key="drift_check_summary",
+        category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+        status=status,
+        summary="Bounded drift-check sampling completed.",
+        metrics={
+            "drift_check_enabled": True,
+            "sample_count": len(drift_samples),
+            "suspicious_sample_count": suspicious_count,
+            "failed_sample_count": fail_count,
+            "inconclusive_sample_count": inconclusive_count,
+        },
+    )
 
 
 def _inconclusive_subprofile_result(

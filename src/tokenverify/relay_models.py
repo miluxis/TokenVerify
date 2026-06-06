@@ -117,3 +117,12 @@ def parse_relay_scenario(value: str) -> RelayVerdict:
     except ValueError as exc:
         accepted = ", ".join(item.value for item in RelayVerdict)
         raise RelayAuditConfigError(f"Unknown relay fake-run scenario. Accepted values: {accepted}.") from exc
+
+
+def parse_relay_drift_check(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized == "yes":
+        return True
+    if normalized == "no":
+        return False
+    raise RelayAuditConfigError("--drift-check must be yes or no.")

@@ -567,6 +567,29 @@ def test_run_relay_audit_with_live_full_routes_factories_in_order():
             body={"choices": [{"message": {"content": "OK."}, "finish_reason": "stop"}]},
         )
 
+    def security_transport(payload):
+        calls.append("security")
+        text = str(payload)
+        if "TV_EXTRACTION_SAFE" in text:
+            content = "TV_EXTRACTION_SAFE"
+        elif "TV_OVERRIDE_SAFE" in text:
+            content = "TV_OVERRIDE_SAFE"
+        else:
+            content = "TV_SAFE_BOUNDARY_OK"
+        return RelayLiveTransportResponse(
+            status_code=200,
+            body={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]},
+        )
+
+    def context_transport(payload):
+        calls.append("context")
+        text = str(payload)
+        content = "TV_CTX_MIDDLE" if "TV_CTX_MIDDLE" in text else "TV_CTX_ALPHA|TV_CTX_BRAVO|TV_CTX_CHARLIE"
+        return RelayLiveTransportResponse(
+            status_code=200,
+            body={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]},
+        )
+
     result = run_relay_audit(
         RelayAuditRequest(
             base_url="https://api.relay.com/v1/chat/completions?token=secret#frag",
@@ -580,10 +603,12 @@ def test_run_relay_audit_with_live_full_routes_factories_in_order():
             stream_transport_factory=lambda: stream_transport,
             schema_transport_factory=lambda: schema_transport,
             privacy_transport_factory=lambda: privacy_transport,
+            security_transport_factory=lambda: security_transport,
+            context_transport_factory=lambda: context_transport,
         )
     )
 
-    assert calls == ["general", "streaming", "schema", "privacy"]
+    assert calls == ["general", "streaming", "schema", "privacy", "security", "security", "security", "context", "context"]
     assert result.profile == RelayAuditProfile.FULL
     assert result.verdict == RelayVerdict.PASS
 

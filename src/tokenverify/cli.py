@@ -20,7 +20,13 @@ from tokenverify.report import render_markdown
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
 from tokenverify.relay_context import RelayContextTransport
 from tokenverify.relay_live import RelayLiveTransportResponse
-from tokenverify.relay_models import RelayAuditConfigError, RelayAuditProfile, parse_relay_profile, parse_relay_scenario
+from tokenverify.relay_models import (
+    RelayAuditConfigError,
+    RelayAuditProfile,
+    parse_relay_drift_check,
+    parse_relay_profile,
+    parse_relay_scenario,
+)
 from tokenverify.relay_report import render_relay_markdown
 from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, guard_api_key_env_name, sanitize_public_relay_text
 from tokenverify.relay_security import RelaySecurityTransport
@@ -96,8 +102,9 @@ def audit(
     model: str | None = typer.Option(None, "--model", rich_help_panel="Relay Audit Options"),
     api_key: str | None = typer.Option(None, "--api-key", rich_help_panel="Relay Audit Options"),
     api_key_env: str | None = typer.Option(None, "--api-key-env", rich_help_panel="Relay Audit Options"),
-    profile: str = typer.Option("general", "--profile", rich_help_panel="Relay Audit Options"),
+    profile: str = typer.Option("full", "--profile", rich_help_panel="Relay Audit Options"),
     fake_run: str | None = typer.Option(None, "--fake-run", rich_help_panel="Relay Audit Options"),
+    drift_check: str = typer.Option("no", "--drift-check", rich_help_panel="Relay Audit Options"),
     pack_path: str | None = typer.Option(None, "--pack-path", rich_help_panel="Relay Audit Options"),
     live: bool = typer.Option(False, "--live", rich_help_panel="Relay Audit Options"),
     route: str = typer.Option("auto", "--route", rich_help_panel="Global Options"),
@@ -161,6 +168,7 @@ def audit(
             model = relay_config["model"]
             profile = relay_config["profile"]
             fake_run = relay_config["fake_run"]
+            drift_check = relay_config["drift_check"]
             api_key_env = relay_config["api_key_env"]
             pack_path = relay_config["pack_path"]
             live = relay_config["live"]
@@ -169,6 +177,7 @@ def audit(
             model=model or "",
             profile=profile,
             fake_run=fake_run,
+            drift_check=drift_check,
             output=output,
             language=report_language,
             api_key=api_key,
@@ -229,8 +238,9 @@ def audit(
 def relay_audit(
     base_url: str = typer.Option(..., "--base-url"),
     model: str = typer.Option(..., "--model"),
-    profile: str = typer.Option("general", "--profile"),
+    profile: str = typer.Option("full", "--profile"),
     fake_run: str | None = typer.Option(None, "--fake-run"),
+    drift_check: str = typer.Option("no", "--drift-check"),
     output: str | None = typer.Option(None, "--output"),
     language: str = typer.Option("en", "--language"),
     api_key: str | None = typer.Option(None, "--api-key"),
@@ -243,6 +253,7 @@ def relay_audit(
         model=model,
         profile=profile,
         fake_run=fake_run,
+        drift_check=drift_check,
         output=output,
         language=language,
         api_key=api_key,
@@ -259,6 +270,7 @@ def _run_relay_audit_cli_flow(
     model: str,
     profile: str,
     fake_run: str | None,
+    drift_check: str,
     output: str | None,
     language: str,
     api_key: str | None,
@@ -276,6 +288,7 @@ def _run_relay_audit_cli_flow(
         api_key_env = guard_api_key_env_name(api_key_env)
         report_language = _normalize_language(language)
         relay_profile = parse_relay_profile(profile)
+        parsed_drift_check = parse_relay_drift_check(drift_check)
         relay_scenario = parse_relay_scenario(fake_run) if fake_run else None
         resolved_api_key = _resolve_relay_api_key(
             api_key=api_key,
@@ -290,6 +303,7 @@ def _run_relay_audit_cli_flow(
             pack_path=Path(pack_path) if pack_path else None,
             live=live,
             api_key=resolved_api_key,
+            drift_check=parsed_drift_check,
         )
         request = _with_relay_live_transports(request, relay_profile, relay_scenario)
         result = run_relay_audit(request)
@@ -304,7 +318,11 @@ def _run_relay_audit_cli_flow(
         typer.echo(sanitize_public_relay_text(exc))
         raise typer.Exit(1) from exc
 
-    output_path = Path(output) if output else _next_available_relay_report_path(model, date.today())
+    output_path = (
+        Path(output)
+        if output
+        else _next_available_relay_report_path(model, date.today(), profile=relay_profile.value)
+    )
     markdown = render_relay_markdown(result, language=report_language)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
@@ -339,6 +357,8 @@ def _with_relay_live_transports(
             stream_transport_factory=_default_relay_stream_transport_factory(request),
             schema_transport_factory=_default_relay_schema_transport_factory(request),
             privacy_transport_factory=_default_relay_privacy_transport_factory(request),
+            security_transport_factory=_default_relay_security_transport_factory(request),
+            context_transport_factory=_default_relay_context_transport_factory(request),
         )
     return replace(request, live_transport_factory=_default_relay_live_transport_factory(request))
 
@@ -529,7 +549,7 @@ def _has_relay_cli_inputs(
         (
             base_url,
             model,
-            profile != "general",
+            profile.strip().lower() not in {"", "full"},
             fake_run,
             pack_path,
         )
@@ -564,7 +584,7 @@ def _determine_audit_route(
         raise ConfigError("Detected --base-url; relay audit also requires --model.")
     if model and not base_url:
         raise ConfigError("Detected --model; relay audit also requires --base-url.")
-    if profile != "general" and not (base_url and model):
+    if profile.strip().lower() not in {"", "full"} and not (base_url and model):
         raise ConfigError("Detected --profile; relay audit profiles require --base-url and --model.")
     if fake_run and not (base_url and model):
         raise ConfigError("Detected --fake-run; relay audit fake-runs require --base-url and --model.")
@@ -594,8 +614,9 @@ def _load_relay_config(data: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "base_url": str(base_url),
         "model": str(model),
-        "profile": str(relay.get("profile") or "general"),
+        "profile": str(relay.get("profile") or "full"),
         "fake_run": str(relay["fake_run"]) if relay.get("fake_run") else None,
+        "drift_check": str(relay.get("drift_check") or "no"),
         "api_key_env": str(relay["api_key_env"]) if relay.get("api_key_env") else None,
         "pack_path": str(relay["pack_path"]) if relay.get("pack_path") else None,
         "live": bool(relay.get("live", False)),
@@ -634,9 +655,15 @@ def _next_available_report_path(model: str, today) -> Path:
     raise ConfigError("Could not find an available report filename.")
 
 
-def _next_available_relay_report_path(model: str, today) -> Path:
+def _next_available_relay_report_path(model: str, today, profile: str = "full") -> Path:
     model_slug = _slugify_model_name(model)
-    base_path = Path("reports") / f"audit-relay-{model_slug}-{today}.md"
+    normalized_profile = profile.strip().lower()
+    if normalized_profile == "full":
+        filename = f"audit-relay-{model_slug}-{today}.md"
+    else:
+        profile_slug = _slugify_model_name(normalized_profile)
+        filename = f"audit-relay-{profile_slug}-{model_slug}-{today}.md"
+    base_path = Path("reports") / filename
     if not base_path.exists():
         return base_path
     for index in range(2, 1000):

@@ -32,6 +32,7 @@ class RelayAuditRequest:
     pack_path: Path | None
     live: bool = False
     api_key: str | None = None
+    drift_check: bool = False
     live_transport_factory: Callable[[], RelayLiveTransport | None] | None = None
     stream_transport_factory: Callable[[], RelayStreamingTransport | None] | None = None
     schema_transport_factory: Callable[[], RelaySchemaTransport | None] | None = None
@@ -56,6 +57,7 @@ def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
             endpoint=request.base_url,
             model=request.model,
             pack_summary=pack_summary,
+            drift_check=request.drift_check,
         )
     authorization = authorize_relay_live_execution(live_mode=request.live, profile=request.profile)
     if request.profile == RelayAuditProfile.FULL:
@@ -101,14 +103,51 @@ def run_relay_audit(request: RelayAuditRequest) -> RelayResult:
                     pack_summary=pack_summary,
                     transport=privacy_transport,
                 )
+            if profile == RelayAuditProfile.SECURITY:
+                security_transport = request.security_transport_factory() if request.security_transport_factory else None
+                return run_minimal_security_live_check(
+                    authorization=sub_authorization,
+                    endpoint=request.base_url,
+                    model=request.model,
+                    api_key=request.api_key,
+                    pack_summary=pack_summary,
+                    transport=security_transport,
+                )
+            if profile == RelayAuditProfile.CONTEXT:
+                context_transport = request.context_transport_factory() if request.context_transport_factory else None
+                return run_minimal_context_live_check(
+                    authorization=sub_authorization,
+                    endpoint=request.base_url,
+                    model=request.model,
+                    api_key=request.api_key,
+                    pack_summary=pack_summary,
+                    transport=context_transport,
+                )
             raise RelayAuditConfigError("Unsupported full-profile subprofile.")
 
+        drift_samples: list[RelayResult] = []
+        if request.drift_check:
+            for _ in range(8):
+                sub_authorization = authorize_relay_live_execution(live_mode=request.live, profile=RelayAuditProfile.GENERAL)
+                live_transport = request.live_transport_factory() if request.live_transport_factory else None
+                drift_samples.append(
+                    run_minimal_general_live_check(
+                        authorization=sub_authorization,
+                        endpoint=request.base_url,
+                        model=request.model,
+                        api_key=request.api_key,
+                        pack_summary=pack_summary,
+                        transport=live_transport,
+                    )
+                )
         return run_full_live_check(
             authorization=authorization,
             endpoint=request.base_url,
             model=request.model,
             pack_summary=pack_summary,
             subprofile_runner=run_subprofile,
+            drift_check=request.drift_check,
+            drift_samples=drift_samples,
         )
     if request.profile == RelayAuditProfile.STREAMING:
         stream_transport = request.stream_transport_factory() if request.stream_transport_factory else None

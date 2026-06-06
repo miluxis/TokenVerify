@@ -3,6 +3,7 @@ from __future__ import annotations
 from tokenverify.relay_fraud import (
     collect_relay_fraud_evidence,
     evaluate_fraud_scenarios,
+    FraudScenarioStatus,
     render_fraud_scenario_summary,
 )
 from tokenverify.relay_models import RelayAuditMode, RelayAuditProfile, RelayPackSummary, RelayResult
@@ -37,53 +38,143 @@ RISK_LABELS = {
 
 def render_relay_markdown(result: RelayResult, language: str = "en") -> str:
     language = _normalize_language(language)
-    labels = _labels(language)
+    if result.profile == RelayAuditProfile.FULL:
+        return _render_full_relay_markdown(result, language)
+    return _render_technical_profile_markdown(result, language)
+
+
+def _render_full_relay_markdown(result: RelayResult, language: str) -> str:
+    fraud_evidence, fraud_sources = collect_relay_fraud_evidence(result)
+    fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
+    posture = _fraud_posture(result, language, fraud_summary)
     lines = [
         "# TokenVerify Relay Audit Report",
         "",
-        labels["plain_language_summary"],
+        "## 通俗结论" if language == "zh" else "## Plain-Language Conclusion",
         "",
-        f"{labels['relay_verdict']}: **{result.verdict.value}**",
-        f"{labels['risk_level']}: **{result.risk_level.value}**",
-        labels["plain_language_note"],
-        "",
-        labels["audit_route"],
-        "",
-        "- Route: `relay`",
-        "- Route family: relay contract/safety",
-        labels["audit_route_note"],
-        "",
-        labels["target_summary"],
-        "",
-        f"{labels['model']}: {sanitize_public_relay_text(result.model)}",
-        f"{labels['profile']}: {result.profile.value}",
-        f"{labels['mode']}: {result.mode.value}",
-        f"{labels['endpoint_host']}: {sanitize_public_relay_text(result.endpoint_host)}",
-        f"{labels['endpoint_hash']}: {sanitize_public_relay_text(result.endpoint_hash)}",
-        f"{labels['challenge_pack']}: {_pack_summary_text(result.pack_summary, language)}",
-        f"{labels['run_id']}: {sanitize_public_relay_text(result.run_id)}",
+        f"- {'总体判断' if language == 'zh' else 'Overall judgment'}：**{posture['judgment']}**",
+        f"- {'风险等级' if language == 'zh' else 'Risk level'}：**{posture['risk_level']}**",
+        f"- {'测评对象' if language == 'zh' else 'Target model'}：`{sanitize_public_relay_text(result.model)}`",
+        f"- Endpoint：`{sanitize_public_relay_text(result.endpoint_host)}`",
+        f"- Endpoint hash：`{sanitize_public_relay_text(result.endpoint_hash)}`",
+        f"- {'本次 profile' if language == 'zh' else 'Profile'}：`{result.profile.value}`",
+        f"- {'Challenge pack' if language == 'en' else 'Challenge pack'}：{_pack_summary_text(result.pack_summary, language)}",
+        f"- {'本次结论' if language == 'zh' else 'Conclusion'}：{sanitize_public_relay_text(posture['summary'])}",
         "",
     ]
-    fraud_evidence, fraud_sources = collect_relay_fraud_evidence(result)
-    fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
-    lines.extend(render_fraud_scenario_summary(fraud_summary, language=language))
-    lines.extend(
-        [
-            labels["relay_verdict_section"],
-            "",
-            f"{labels['verdict']}: **{result.verdict.value}**",
-            f"{labels['risk_level']}: **{result.risk_level.value}**",
-        ]
-    )
+    lines.extend(render_fraud_scenario_summary(fraud_summary, language=language, report_kind="full"))
+    lines.extend(_render_executed_technical_checks(result, language))
+    lines.extend(_render_technical_evidence_summary(result, language))
+    if result.inconclusive_reason:
+        lines.extend(["", "## 无法判定说明" if language == "zh" else "## Inconclusive Explanation", ""])
+        lines.append(sanitize_public_relay_text(result.inconclusive_reason))
+    if result.runtime_category:
+        lines.extend(["", f"- Runtime category: {sanitize_public_relay_text(result.runtime_category.value)}"])
+    lines.extend(_render_method_note(language))
+    return "\n".join(lines)
+
+
+def _render_technical_profile_markdown(result: RelayResult, language: str) -> str:
+    lines = [
+        "# TokenVerify Relay Technical Profile Report",
+        "",
+        "## 技术检查结果" if language == "zh" else "## Technical Result",
+        "",
+        f"- Profile: {result.profile.value}",
+        f"- Mode: {result.mode.value}",
+        f"- Verdict: **{result.verdict.value}**",
+        f"- Risk level: **{result.risk_level.value}**",
+        f"- Target model: `{sanitize_public_relay_text(result.model)}`",
+        f"- Endpoint: `{sanitize_public_relay_text(result.endpoint_host)}`",
+        f"- Endpoint hash: `{sanitize_public_relay_text(result.endpoint_hash)}`",
+        f"- Challenge pack: {_pack_summary_text(result.pack_summary, language)}",
+        "",
+    ]
+    if result.runtime_category:
+        lines.append(f"- Runtime category: {sanitize_public_relay_text(result.runtime_category.value)}")
+        lines.append("")
+    lines.extend(_render_supported_scenario_scope(result.profile, language))
+    lines.extend(_render_sanitized_technical_evidence(result, language))
+    lines.extend(["", "## 安全说明" if language == "zh" else "## Safety Note", "", _safety_note(result, language)])
+    if result.inconclusive_reason:
+        lines.extend(["", "## 无法判定说明" if language == "zh" else "## Inconclusive Explanation", ""])
+        lines.append(sanitize_public_relay_text(result.inconclusive_reason))
+    lines.extend(_render_method_note(language))
+    return "\n".join(lines)
+
+
+def _fraud_posture(result: RelayResult, language: str, fraud_summary=None) -> dict[str, str]:
+    scenario_attention = False
+    if fraud_summary is not None:
+        scenario_attention = any(
+            item.status in {FraudScenarioStatus.DETECTED, FraudScenarioStatus.SUSPICIOUS}
+            for item in fraud_summary.results
+        )
+    if result.verdict.value == "fail":
+        judgment = "Fail"
+        risk_level = "high"
+    elif scenario_attention:
+        judgment = "Suspicious"
+        risk_level = "medium"
+    elif result.verdict.value == "suspicious":
+        judgment = "Suspicious"
+        risk_level = "medium"
+    elif result.verdict.value == "inconclusive":
+        judgment = "Inconclusive"
+        risk_level = "unknown"
+    else:
+        judgment = "Pass"
+        risk_level = "low"
+    if language == "zh":
+        summary = (
+            "该 endpoint 通过了已执行的基础连通性、streaming、schema、privacy、security 与 context 检查。"
+            if judgment == "Pass"
+            else "该 endpoint 在本次检查中出现了需要关注的场景信号；请查看下方关键证据。"
+        )
+    else:
+        summary = (
+            "This endpoint passed the executed connectivity, streaming, schema, privacy, security, and context checks."
+            if judgment == "Pass"
+            else "This endpoint produced scenario signals that need attention; review the evidence below."
+        )
+    return {"judgment": judgment, "risk_level": risk_level, "summary": summary}
+
+
+def _render_executed_technical_checks(result: RelayResult, language: str) -> list[str]:
+    profile_metrics = _full_profile_metrics(result)
+    labels = {
+        "general": "General connectivity",
+        "streaming": "Streaming integrity",
+        "schema": "Schema / tool calling",
+        "privacy": "Privacy contract",
+        "security": "Security boundary",
+        "context": "Context retention",
+    }
+    lines = ["", "## 已执行技术检查" if language == "zh" else "## Executed Technical Checks", ""]
+    for profile, label in labels.items():
+        status = profile_metrics.get(profile, {}).get("verdict", "not_run")
+        lines.append(f"- {label}：{sanitize_public_relay_text(status)}")
+    return lines
+
+
+def _render_technical_evidence_summary(result: RelayResult, language: str) -> list[str]:
+    profile_metrics = _full_profile_metrics(result)
+    lines = ["", "## 技术证据摘要" if language == "zh" else "## Technical Evidence Summary", ""]
+    lines.extend(["| Profile | Result | Key Evidence |", "|---|---|---|"])
+    for profile in ("general", "streaming", "schema", "privacy", "security", "context"):
+        metrics = profile_metrics.get(profile, {})
+        verdict = sanitize_public_relay_text(metrics.get("verdict", "not_run"))
+        evidence_keys = metrics.get("evidence_keys") or []
+        key_evidence = _summarize_evidence_keys(profile, evidence_keys)
+        lines.append(f"| {profile} | {verdict} | {sanitize_public_relay_text(key_evidence)} |")
+    return lines
+
+
+def _render_sanitized_technical_evidence(result: RelayResult, language: str) -> list[str]:
+    labels = _labels(language)
+    lines = ["", labels["sanitized_evidence"], ""]
     if result.runtime_category:
         lines.append(f"{labels['runtime_category']}: {sanitize_public_relay_text(result.runtime_category.value)}")
-    lines.extend(["", labels["risk_categories"], ""])
-    if result.risk_categories:
-        for category in result.risk_categories:
-            lines.append(f"- {_risk_label(category.value, language)} (`{category.value}`)")
-    else:
-        lines.append(labels["none"])
-    lines.extend(["", labels["sanitized_evidence"], ""])
     for item in result.evidence:
         lines.append(f"### {sanitize_public_relay_text(item.key)}")
         lines.append(f"{labels['category']}: {_risk_label(item.category.value, language)}")
@@ -95,29 +186,68 @@ def render_relay_markdown(result: RelayResult, language: str = "en") -> str:
                 for key, value in sorted(item.metrics.items())
             )
             lines.append(f"{labels['metrics']}: {safe_metrics}")
-    if result.inconclusive_reason:
-        lines.extend(
-            [
-                "",
-                labels["inconclusive_explanation"],
-                "",
-                sanitize_public_relay_text(result.inconclusive_reason),
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            labels["retest_guidance"],
-            "",
-            sanitize_public_relay_text(result.retest_guidance),
-            "",
-            labels["safety_note"],
-            "",
-            _safety_note(result, language),
-            "",
-        ]
+    return lines
+
+
+def _render_supported_scenario_scope(profile: RelayAuditProfile, language: str) -> list[str]:
+    scope = {
+        RelayAuditProfile.GENERAL: ("Basic relay connectivity", "Runtime error and channel-envelope signals"),
+        RelayAuditProfile.STREAMING: ("Fake or degraded streaming", "SSE event sequence integrity"),
+        RelayAuditProfile.SCHEMA: ("Schema / Tool Calling breakage", "Input or argument rewrite signals related to tool contracts"),
+        RelayAuditProfile.PRIVACY: ("Privacy leakage", "Marker leakage and upstream error disclosure"),
+        RelayAuditProfile.SECURITY: ("Prompt-security boundary", "Prompt extraction and override-risk signals"),
+        RelayAuditProfile.CONTEXT: ("Context retention", "Context anchor loss and rewrite signals"),
+    }.get(profile, ("Technical relay behavior", "Run the default full profile for the scenario-first fraud report"))
+    lines = ["", "## 支撑场景范围" if language == "zh" else "## Supported Scenario Scope", ""]
+    if language == "zh":
+        lines.append("该技术 profile 可支撑：")
+    else:
+        lines.append("This technical profile can support:")
+    lines.extend(["", f"- {sanitize_public_relay_text(scope[0])}", f"- {sanitize_public_relay_text(scope[1])}", ""])
+    lines.append(
+        "它不输出完整欺诈场景 pass/fail 结论。若要生成完整场景报告，请运行默认 full profile。"
+        if language == "zh"
+        else "It does not render complete fraud-scenario pass/fail conclusions. Run the default full profile for the scenario-first fraud report."
     )
-    return "\n".join(lines)
+    return lines
+
+
+def _render_method_note(language: str) -> list[str]:
+    return [
+        "",
+        "## 方法说明" if language == "zh" else "## Method Note",
+        "",
+        (
+            "TokenVerify 使用黑盒探针判断 endpoint 行为是否与声明一致。它可以发现 contract breakage、channel marker、模型能力矛盾、上下文异常、隐私泄漏和流式/schema 破坏信号。它不会在没有硬证据时宣称精确上游模型身份，也不在开源版中进行账单对账或缓存重放数据库分析。"
+            if language == "zh"
+            else "TokenVerify uses black-box probes to judge whether endpoint behavior matches the claim. It can surface contract breakage, channel markers, model-capability contradictions, context anomalies, privacy leakage, and streaming/schema breakage signals. It does not claim exact upstream identity without hard evidence, and the open-source edition does not perform billing reconciliation or cache-replay database analysis."
+        ),
+        "",
+    ]
+
+
+def _full_profile_metrics(result: RelayResult) -> dict:
+    for item in result.evidence:
+        if item.key == "full_profile_composite_verdict" and isinstance(item.metrics, dict):
+            return item.metrics
+    return {}
+
+
+def _summarize_evidence_keys(profile: str, evidence_keys) -> str:
+    keys = set(evidence_keys or [])
+    if profile == "general":
+        return "minimal connectivity completed" if keys else "not run"
+    if profile == "streaming":
+        return "delta + finish observed" if keys else "not run"
+    if profile == "schema":
+        return "tool call preserved" if keys else "not run"
+    if profile == "privacy":
+        return "marker not leaked" if keys else "not run"
+    if profile == "security":
+        return "extraction/override probes resisted" if keys else "not run"
+    if profile == "context":
+        return "anchor sequence retained" if keys else "not run"
+    return ", ".join(evidence_keys or []) or "not run"
 
 
 def _safety_note(result: RelayResult, language: str) -> str:

@@ -163,11 +163,31 @@ def run_minimal_general_live_check(
                 category=RelayRiskCategory.MODEL_SUBSTITUTION,
                 status="pass",
                 summary="Minimal live connectivity check completed with a compatible response envelope.",
-                metrics={"status_code": response.status_code},
+                metrics={
+                    "status_code": response.status_code,
+                    "response_id_pattern": _public_response_id_pattern(response.body.get("id")),
+                    "provider_marker_detected": _provider_marker_detected(response.body, response.headers or {}),
+                },
             )
         ],
         retest_guidance="Run deeper profile-specific probes only after their approved milestones.",
     )
+
+
+def _public_response_id_pattern(value: object) -> str | None:
+    text = sanitize_public_relay_text(value).strip()
+    if not text or text == "None":
+        return None
+    if text.startswith("msg_bdrk"):
+        return "msg_bdrk..."
+    if text.startswith("chatcmpl-"):
+        return "chatcmpl-..."
+    return text[:12] + "..." if len(text) > 12 else text
+
+
+def _provider_marker_detected(body: dict[str, Any], headers: dict[str, str]) -> bool:
+    text = sanitize_public_relay_text({"body": body, "headers": headers}).lower()
+    return any(marker in text for marker in ("bedrock", "azure", "aws", "anthropic-version", "x-amzn"))
 
 
 def _runtime_error_for_status(status_code: int) -> NormalizedRelayRuntimeError | None:

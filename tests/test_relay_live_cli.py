@@ -130,12 +130,82 @@ def test_unified_audit_direct_relay_fake_run_writes_relay_report(tmp_path):
     assert result.exit_code == 0
     assert "Wrote relay audit report:" in result.output
     markdown = output_path.read_text(encoding="utf-8")
-    assert "TokenVerify Relay Audit Report" in markdown
-    assert "Audit Route" in markdown
-    assert "relay contract/safety" in markdown
+    assert "TokenVerify Relay Technical Profile Report" in markdown
+    assert "Technical Result" in markdown
     assert "privacy" in markdown
     assert "https://" not in markdown
     assert "heiyan_studio" not in markdown
+
+
+def test_unified_relay_audit_defaults_to_full_profile_for_direct_relay_inputs(tmp_path):
+    output_path = tmp_path / "default-full.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "- Profile：`full`" in markdown or "- 本次 profile：`full`" in markdown
+
+
+def test_unified_relay_audit_accepts_drift_check_yes(tmp_path):
+    output_path = tmp_path / "drift-check.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "suspicious",
+            "--drift-check",
+            "yes",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    markdown = output_path.read_text(encoding="utf-8")
+    assert "drift" in markdown.lower() or "漂移" in markdown
+    assert "Drift check was not enabled" not in markdown
+    assert "This full-profile run did not enable drift checking" not in markdown
+    assert "Rerun with `--drift-check yes`" not in markdown
+
+
+def test_unified_relay_audit_rejects_invalid_drift_check():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--drift-check",
+            "maybe",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--drift-check must be yes or no" in result.output
 
 
 def test_unified_audit_relay_detail_audit_yes_is_rejected():
@@ -210,8 +280,8 @@ relay:
 
     assert result.exit_code == 0
     markdown = output_path.read_text(encoding="utf-8")
-    assert "TokenVerify Relay Audit Report" in markdown
-    assert "relay contract/safety" in markdown
+    assert "TokenVerify Relay Technical Profile Report" in markdown
+    assert "Technical Result" in markdown
     assert "https://" not in markdown
     assert "heiyan_studio" not in markdown
 
@@ -252,12 +322,9 @@ def test_relay_cli_live_general_supports_zh_report_language(tmp_path, monkeypatc
 
     assert result.exit_code == 0
     markdown = output_path.read_text(encoding="utf-8")
-    assert "通俗摘要" in markdown
-    assert "目标摘要" in markdown
-    assert "## 欺诈场景总结" in markdown
-    assert "模型身份与能力冒充" in markdown
-    assert "Relay 结论" in markdown
-    assert "复测建议" in markdown
+    assert "技术检查结果" in markdown
+    assert "支撑场景范围" in markdown
+    assert "方法说明" in markdown
     assert "https://" not in markdown
     assert "/v1" not in markdown
     assert "heiyan_studio" not in markdown
@@ -323,7 +390,8 @@ def test_relay_cli_live_runtime_inconclusive_exits_three_and_writes_report(tmp_p
     assert "sk-secret" not in result.output
     assert output_path.exists()
     markdown = output_path.read_text(encoding="utf-8")
-    assert "- Runtime category: auth_error" in markdown
+    assert "Inconclusive" in markdown
+    assert "Runtime category" in markdown
     assert "https://" not in markdown
     assert "token=secret" not in markdown
     assert "sk-secret" not in markdown
@@ -1261,10 +1329,47 @@ def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
 
         return factory
 
+    def fake_security_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("security")
+                text = str(payload)
+                if "TV_EXTRACTION_SAFE" in text:
+                    content = "TV_EXTRACTION_SAFE"
+                elif "TV_OVERRIDE_SAFE" in text:
+                    content = "TV_OVERRIDE_SAFE"
+                else:
+                    content = "TV_SAFE_BOUNDARY_OK"
+                return RelayLiveTransportResponse(
+                    status_code=200,
+                    body={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]},
+                )
+
+            return transport
+
+        return factory
+
+    def fake_context_factory(request):
+        def factory():
+            def transport(payload):
+                calls.append("context")
+                text = str(payload)
+                content = "TV_CTX_MIDDLE" if "TV_CTX_MIDDLE" in text else "TV_CTX_ALPHA|TV_CTX_BRAVO|TV_CTX_CHARLIE"
+                return RelayLiveTransportResponse(
+                    status_code=200,
+                    body={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]},
+                )
+
+            return transport
+
+        return factory
+
     monkeypatch.setattr(cli_module, "_default_relay_live_transport_factory", fake_general_factory)
     monkeypatch.setattr(cli_module, "_default_relay_stream_transport_factory", fake_stream_factory)
     monkeypatch.setattr(cli_module, "_default_relay_schema_transport_factory", fake_schema_factory)
     monkeypatch.setattr(cli_module, "_default_relay_privacy_transport_factory", fake_privacy_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_security_transport_factory", fake_security_factory)
+    monkeypatch.setattr(cli_module, "_default_relay_context_transport_factory", fake_context_factory)
     output_path = tmp_path / "full-report.md"
     result = CliRunner().invoke(
         app,
@@ -1286,11 +1391,11 @@ def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0
-    assert calls == ["general", "streaming", "schema", "privacy"]
+    assert calls == ["general", "streaming", "schema", "privacy", "security", "security", "security", "context", "context"]
     markdown = output_path.read_text(encoding="utf-8")
-    assert "Profile: full" in markdown
-    assert "Full profile" in markdown
-    assert "Serial execution can make timeout delays add up across subprofiles" in markdown
+    assert "Profile}：`full`" not in markdown
+    assert "Profile：`full`" in markdown or "Profile: `full`" in markdown
+    assert "Executed Technical Checks" in markdown
     assert "api.relay.com" in markdown
     assert "chat/completions" not in markdown
     assert "token=secret" not in markdown

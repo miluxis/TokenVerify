@@ -114,11 +114,77 @@ def test_full_orchestrator_runs_subprofiles_in_order():
     )
 
     assert tuple(calls) == FULL_SUBPROFILE_ORDER
+    assert tuple(calls) == (
+        RelayAuditProfile.GENERAL,
+        RelayAuditProfile.STREAMING,
+        RelayAuditProfile.SCHEMA,
+        RelayAuditProfile.PRIVACY,
+        RelayAuditProfile.SECURITY,
+        RelayAuditProfile.CONTEXT,
+    )
     assert result.profile == RelayAuditProfile.FULL
     assert result.verdict == RelayVerdict.PASS
     assert result.risk_level == RelayRiskLevel.LOW
     assert result.endpoint_host == "relay.example"
     assert result.endpoint_hash
+    composite = next(item for item in result.evidence if item.key == "full_profile_composite_verdict")
+    assert set(composite.metrics) >= {"general", "streaming", "schema", "privacy", "security", "context"}
+
+
+def test_full_orchestrator_adds_insufficient_drift_evidence_when_drift_check_disabled():
+    def runner(profile):
+        return make_subprofile_result(profile)
+
+    result = run_full_live_check(
+        authorization=RelayLiveAuthorization(
+            live_mode=True,
+            profile=RelayAuditProfile.FULL,
+            approved_live_path="full_composite_profile",
+            network_scope="approved_subprofile_sequence",
+        ),
+        endpoint="https://relay.example/v1",
+        model="example-model",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        subprofile_runner=runner,
+        drift_check=False,
+    )
+
+    drift = next(item for item in result.evidence if item.key == "drift_check_summary")
+    assert drift.status == "insufficient_evidence"
+    assert drift.metrics["drift_check_enabled"] is False
+    assert drift.metrics["recommended_action"] == "--drift-check yes"
+
+
+def test_full_orchestrator_summarizes_enabled_drift_samples():
+    def runner(profile):
+        return make_subprofile_result(profile)
+
+    samples = [
+        make_subprofile_result(RelayAuditProfile.GENERAL),
+        make_subprofile_result(RelayAuditProfile.GENERAL),
+        make_subprofile_result(RelayAuditProfile.GENERAL, verdict=RelayVerdict.SUSPICIOUS, risk=RelayRiskLevel.MEDIUM),
+    ]
+
+    result = run_full_live_check(
+        authorization=RelayLiveAuthorization(
+            live_mode=True,
+            profile=RelayAuditProfile.FULL,
+            approved_live_path="full_composite_profile",
+            network_scope="approved_subprofile_sequence",
+        ),
+        endpoint="https://relay.example/v1",
+        model="example-model",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        subprofile_runner=runner,
+        drift_check=True,
+        drift_samples=samples,
+    )
+
+    drift = next(item for item in result.evidence if item.key == "drift_check_summary")
+    assert drift.status == "suspicious"
+    assert drift.metrics["drift_check_enabled"] is True
+    assert drift.metrics["sample_count"] == 3
+    assert drift.metrics["suspicious_sample_count"] == 1
 
 
 def test_full_orchestrator_converts_raw_subprofile_exception_to_sanitized_inconclusive():

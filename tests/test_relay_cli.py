@@ -28,7 +28,8 @@ def test_relay_cli_fake_run_writes_sanitized_report(tmp_path):
     assert "Wrote relay audit report:" in result.output
     assert "Relay audit completed with verdict: suspicious" in result.output
     markdown = output_path.read_text(encoding="utf-8")
-    assert "TokenVerify Relay Audit Report" in markdown
+    assert "TokenVerify Relay Technical Profile Report" in markdown
+    assert "Profile: general" in markdown
     assert "api.relay.com" in markdown
     assert "https://" not in markdown
     assert "/v1" not in markdown
