@@ -63,7 +63,7 @@ level、hash、status 和脱敏 verifier 摘要，不改变 hard-fail 可信度�
 
 Relay Audit 是面向 OpenAI-compatible 中转端点的专用 CLI 产品路径。它支持
 确定性的 fake-run 演示，也支持经过 `--live` 明确授权的真实检测。当前 profile
-包括 `general`、`streaming`、`schema`、`privacy`、`security`、`context` 和 `full`。
+包括 `general`、`identity`、`channel`、`reasoning`、`streaming`、`schema`、`privacy`、`security`、`context` 和 `full`。
 对普通用户来说，`full` 是默认公开报告路径；单个 profile 是高级技术诊断。
 
 运行一次不发网络请求的确定性演示：
@@ -153,6 +153,9 @@ profile 报告，只说明它能支撑哪些场景范围，不会宣称某个完
 | --- | --- |
 | `full` | 默认选择。用于一次性生成综合场景报告，适合留档、对比或公开展示。 |
 | `general` | 先确认这个 relay 能不能基本正常返回兼容包络。 |
+| `identity` | 当你重点关心低价/低版本模型冒充高价模型、模型字段或候选上游家族矛盾时使用。 |
+| `channel` | 当你重点关心是否观察到 Bedrock、Azure、OpenRouter、OneAPI、NewAPI 或 proxy 兼容渠道信号时使用。 |
+| `reasoning` | 当你重点关心 Thinking/reasoning 能力是否伪造、是否缺少原生 reasoning 字段时使用。 |
 | `streaming` | 当你关心打字机式流输出是否稳定、完整、不像伪流式时使用。 |
 | `schema` | 当你的工作流依赖 tool calling、function calling 或 JSON 结构，而且你不希望 relay 把结构弄坏时使用。 |
 | `privacy` | 当你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露时使用。 |
@@ -161,11 +164,21 @@ profile 报告，只说明它能支撑哪些场景范围，不会宣称某个完
 
 ## 欺诈场景总结
 
-Full relay 报告会在详细技术证据之前展示 Fraud Scenario Summary / 欺诈场景总结。它会把已有证据映射成普通用户能理解的风险类别，例如模型身份冒充、渠道来源伪装、号池或混池漂移、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖等。
+Full relay 报告会在详细技术证据之前展示 Fraud Scenario Summary / 欺诈场景总结。它会把已有证据映射成普通用户能理解的风险类别，例如模型身份冒充、渠道来源伪装、Thinking/reasoning 伪造、号池或混池漂移、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖等。
 
-场景状态包括 `detected`、`suspicious`、`not_detected` 和 `insufficient_evidence`。`insufficient_evidence` 表示该场景与当前报告相关，但本次证据还不够，例如没有开启漂移检查。账单对账、缓存重放数据库等 future/commercial 类别默认不会作为公开报告行展示。
+Full relay 报告采用 signal-first 结构：
 
-这是一层黑盒风险解释，不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
+- 总体结论
+- 欺诈场景总结
+- 技术信号概览
+- 技术证据摘要
+- 方法说明
+
+总体判断描述本次观察到的风险信号，不再把普通用户主结论写成简单 pass/fail。`主要风险信号` 会先给普通用户可读解释，再保留脱敏后的字段证据，方便公开展示时既能读懂，也能追溯底层信号。
+
+场景状态包括 `detected`、`suspicious`、`not_detected` 和 `insufficient_evidence`。`not_detected` 表示相关信号已检查但未观察到，不是空结论。`insufficient_evidence` 表示该场景与当前报告相关，但本次证据还不够，例如没有开启漂移检查。账单对账、缓存重放数据库等 future/commercial 类别默认不会作为公开报告行展示。
+
+这是一层黑盒风险解释。它可以在证据支持时输出 `Claude-like`、`OpenAI-compatible`、`DeepSeek-like`、`Qwen-like`、`GLM-like` 等候选上游家族信号，但这些是行为指纹，不是精确真实上游身份的证明。它也不证明法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
 
 通过 YAML 配置运行 relay audit 可以使用这种形态：
 
@@ -188,7 +201,7 @@ relay:
 | OpenAI 兼容 Claude 中转 | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions 结构、Claude 模型声明一致性、Claude thinking/version 线索、reasoning 泄漏、中转与渠道风险症状。 |
 | OpenAI 兼容 OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI 风格 Chat Completions、模型家族一致性、reasoning 能力证据、stream 序列、官方/兼容渠道线索。 |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek 模型家族一致性、R1 `reasoning_content`、reasoning/content 流式顺序、官方/兼容渠道线索。 |
-| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible 中转契约检测：general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏、提示词边界安全、上下文保留和 full 组合报告。 |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible 中转检测：identity 身份、channel 渠道、reasoning 推理、general 连通性、SSE streaming、schema/tool 保真、privacy 泄漏、提示词边界安全、上下文保留和 full 组合报告。 |
 
 当前刻意不做的范围：
 
@@ -200,6 +213,7 @@ relay:
 - Relay Audit 不会静默执行重复 full profile 深度循环；需要用户显式使用 `--drift-check yes` 开启有界漂移采样。
 - Relay Audit `security` 只提供提示词边界的有限黑盒证据，不证明中转存在恶意，也不代表具备完整越狱防护。
 - Relay Audit `context` 只提供有限的上下文锚点保留证据，不测量精确上下文窗口，不估算计费，也不证明存在恶意截断。
+- Relay Audit `identity`、`channel` 和 `reasoning` 输出黑盒指纹信号。它可以显示矛盾和候选上游家族信号，但没有硬证据时不会宣称精确真实上游身份。
 
 开源 Core 边界：
 

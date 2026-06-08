@@ -11,6 +11,9 @@ class RelayAuditConfigError(ValueError):
 
 class RelayAuditProfile(str, Enum):
     GENERAL = "general"
+    IDENTITY = "identity"
+    CHANNEL = "channel"
+    REASONING = "reasoning"
     STREAMING = "streaming"
     SCHEMA = "schema"
     PRIVACY = "privacy"
@@ -46,6 +49,15 @@ class RelayRuntimeCategory(str, Enum):
     NETWORK_ERROR = "network_error"
     UNSUPPORTED_LIVE_TARGET = "unsupported_live_target"
     UNKNOWN_RUNTIME_ERROR = "unknown_runtime_error"
+
+
+class RelayChannelClaim(str, Enum):
+    OFFICIAL = "official"
+    BEDROCK = "bedrock"
+    AZURE = "azure"
+    OPENROUTER = "openrouter"
+    PROXY = "proxy"
+    UNKNOWN = "unknown"
 
 
 class RelayRiskCategory(str, Enum):
@@ -99,6 +111,7 @@ class RelayResult:
     retest_guidance: str
     inconclusive_reason: str | None = None
     runtime_category: RelayRuntimeCategory | None = None
+    child_results: list["RelayResult"] = field(default_factory=list)
 
 
 def parse_relay_profile(value: str) -> RelayAuditProfile:
@@ -117,6 +130,15 @@ def parse_relay_scenario(value: str) -> RelayVerdict:
     except ValueError as exc:
         accepted = ", ".join(item.value for item in RelayVerdict)
         raise RelayAuditConfigError(f"Unknown relay fake-run scenario. Accepted values: {accepted}.") from exc
+
+
+def parse_relay_channel_claim(value: str) -> RelayChannelClaim:
+    normalized = value.strip().lower()
+    try:
+        return RelayChannelClaim(normalized)
+    except ValueError:
+        accepted = ", ".join(item.value for item in RelayChannelClaim)
+        raise RelayAuditConfigError(f"Unknown relay channel claim. Accepted values: {accepted}.") from None
 
 
 def parse_relay_drift_check(value: str) -> bool:

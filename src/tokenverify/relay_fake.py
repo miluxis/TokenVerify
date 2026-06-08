@@ -24,6 +24,7 @@ def build_fake_relay_result(
     model: str,
     pack_summary: RelayPackSummary,
     drift_check: bool = False,
+    claim_channel: str = "unknown",
 ) -> RelayResult:
     endpoint_host = sanitize_to_fqdn(endpoint)
     endpoint_hash = hash_relay_endpoint(endpoint)
@@ -35,6 +36,17 @@ def build_fake_relay_result(
             model=model,
             pack_summary=pack_summary,
             drift_check=drift_check,
+            claim_channel=claim_channel,
+        )
+    if profile in {RelayAuditProfile.IDENTITY, RelayAuditProfile.CHANNEL, RelayAuditProfile.REASONING}:
+        return _build_fingerprint_fake_result(
+            scenario=scenario,
+            profile=profile,
+            endpoint_host=endpoint_host,
+            endpoint_hash=endpoint_hash,
+            model=model,
+            pack_summary=pack_summary,
+            claim_channel=claim_channel,
         )
     if profile == RelayAuditProfile.SECURITY:
         return _build_security_fake_result(
@@ -98,8 +110,9 @@ def _build_full_fake_result(
     model: str,
     pack_summary: RelayPackSummary,
     drift_check: bool,
+    claim_channel: str,
 ) -> RelayResult:
-    evidence = _full_fake_evidence(scenario, model, drift_check=drift_check)
+    evidence = _full_fake_evidence(scenario, model, drift_check=drift_check, claim_channel=claim_channel)
     risk_categories = sorted({item.category for item in evidence}, key=lambda item: item.value)
     inconclusive_reason = None
     runtime_category = None
@@ -125,7 +138,213 @@ def _build_full_fake_result(
     )
 
 
-def _full_fake_evidence(scenario: RelayVerdict, model: str, *, drift_check: bool) -> list[RelayEvidence]:
+def _build_fingerprint_fake_result(
+    *,
+    scenario: RelayVerdict,
+    profile: RelayAuditProfile,
+    endpoint_host: str,
+    endpoint_hash: str,
+    model: str,
+    pack_summary: RelayPackSummary,
+    claim_channel: str,
+) -> RelayResult:
+    evidence = _fingerprint_fake_evidence(profile, scenario, model=model, claim_channel=claim_channel)
+    risk_categories = sorted({item.category for item in evidence}, key=lambda item: item.value)
+    inconclusive_reason = None
+    runtime_category = None
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        runtime_category = RelayRuntimeCategory.TIMEOUT
+        inconclusive_reason = f"The fake {profile.value} fingerprint scenario represents a sanitized runtime interruption."
+    return RelayResult(
+        run_id=_run_id(profile, scenario, endpoint_hash, model, pack_summary.pack_hash),
+        profile=profile,
+        scenario=scenario,
+        mode=RelayAuditMode.FAKE,
+        model=sanitize_public_relay_text(model),
+        endpoint_host=endpoint_host,
+        endpoint_hash=endpoint_hash,
+        pack_summary=pack_summary,
+        verdict=scenario,
+        risk_level=_risk_level_for(scenario),
+        risk_categories=risk_categories,
+        evidence=evidence,
+        retest_guidance=f"Use live {profile.value} profile only when you intentionally want bounded fingerprint evidence.",
+        inconclusive_reason=inconclusive_reason,
+        runtime_category=runtime_category,
+    )
+
+
+def _fingerprint_fake_evidence(
+    profile: RelayAuditProfile,
+    scenario: RelayVerdict,
+    *,
+    model: str,
+    claim_channel: str,
+) -> list[RelayEvidence]:
+    if profile == RelayAuditProfile.IDENTITY:
+        return _identity_fake_evidence(scenario, model)
+    if profile == RelayAuditProfile.CHANNEL:
+        return _channel_fake_evidence(scenario, claim_channel)
+    return _reasoning_fake_evidence(scenario)
+
+
+def _identity_fake_evidence(scenario: RelayVerdict, model: str) -> list[RelayEvidence]:
+    safe_model = sanitize_public_relay_text(model)
+    if scenario == RelayVerdict.PASS:
+        return [
+            RelayEvidence(
+                key="identity_response_envelope",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="pass",
+                summary="The fake identity fingerprint observed a compatible sanitized response envelope.",
+                metrics={
+                    "claimed_model_family": "claude" if "claude" in safe_model.lower() else "unknown",
+                    "observed_model_family": "claude" if "claude" in safe_model.lower() else "unknown",
+                    "response_id_pattern": "msg_...",
+                },
+            )
+        ]
+    if scenario == RelayVerdict.FAIL:
+        return [
+            RelayEvidence(
+                key="identity_model_field_consistency",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="fail",
+                summary="The fake identity fingerprint observed a model-family contradiction.",
+                metrics={
+                    "claimed_model_family": "claude",
+                    "observed_model_family": "qwen",
+                    "model_family_contradiction": True,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        return [
+            RelayEvidence(
+                key="identity_runtime_inconclusive",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="The fake identity fingerprint simulates a sanitized runtime interruption.",
+                metrics={"runtime_category": RelayRuntimeCategory.TIMEOUT.value},
+            )
+        ]
+    return [
+        RelayEvidence(
+            key="identity_candidate_family_scores",
+            category=RelayRiskCategory.MODEL_SUBSTITUTION,
+            status="suspicious",
+            summary="The fake identity fingerprint observed a candidate upstream-family signal.",
+            metrics={"top_candidate": "qwen", "confidence": "medium"},
+        )
+    ]
+
+
+def _channel_fake_evidence(scenario: RelayVerdict, claim_channel: str) -> list[RelayEvidence]:
+    safe_claim = sanitize_public_relay_text(claim_channel)
+    if scenario == RelayVerdict.PASS:
+        return [
+            RelayEvidence(
+                key="channel_claim_consistency",
+                category=RelayRiskCategory.INFRASTRUCTURE_FINGERPRINT,
+                status="pass",
+                summary="The fake channel fingerprint observed no channel-claim contradiction.",
+                metrics={
+                    "claim_channel": safe_claim,
+                    "observed_channel_family": None,
+                    "official_claim_contradicted": False,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.FAIL:
+        return [
+            RelayEvidence(
+                key="channel_claim_consistency",
+                category=RelayRiskCategory.INFRASTRUCTURE_FINGERPRINT,
+                status="fail",
+                summary="The fake channel fingerprint observed a channel-claim contradiction.",
+                metrics={
+                    "claim_channel": "official",
+                    "observed_channel_family": "bedrock",
+                    "official_claim_contradicted": True,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        return [
+            RelayEvidence(
+                key="channel_runtime_inconclusive",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="The fake channel fingerprint simulates a sanitized runtime interruption.",
+                metrics={"runtime_category": RelayRuntimeCategory.TIMEOUT.value},
+            )
+        ]
+    return [
+        RelayEvidence(
+            key="channel_response_markers",
+            category=RelayRiskCategory.INFRASTRUCTURE_FINGERPRINT,
+            status="suspicious",
+            summary="The fake channel fingerprint observed a provider marker without an official claim.",
+            metrics={"observed_channel_family": "proxy", "provider_marker_detected": True},
+        )
+    ]
+
+
+def _reasoning_fake_evidence(scenario: RelayVerdict) -> list[RelayEvidence]:
+    if scenario == RelayVerdict.PASS:
+        return [
+            RelayEvidence(
+                key="reasoning_native_signal",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="pass",
+                summary="The fake reasoning fingerprint observed compatible native reasoning evidence.",
+                metrics={
+                    "native_reasoning_field_observed": True,
+                    "fake_think_tag_observed": False,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.FAIL:
+        return [
+            RelayEvidence(
+                key="reasoning_native_signal",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="fail",
+                summary="The fake reasoning fingerprint observed missing required native reasoning evidence.",
+                metrics={
+                    "expected_reasoning_family": "deepseek",
+                    "native_reasoning_field_observed": False,
+                },
+            )
+        ]
+    if scenario == RelayVerdict.INCONCLUSIVE:
+        return [
+            RelayEvidence(
+                key="reasoning_runtime_inconclusive",
+                category=RelayRiskCategory.UPSTREAM_ERROR_LEAKAGE,
+                status="inconclusive",
+                summary="The fake reasoning fingerprint simulates a sanitized runtime interruption.",
+                metrics={"runtime_category": RelayRuntimeCategory.TIMEOUT.value},
+            )
+        ]
+    return [
+        RelayEvidence(
+            key="reasoning_fake_thinking_signal",
+            category=RelayRiskCategory.MODEL_SUBSTITUTION,
+            status="suspicious",
+            summary="The fake reasoning fingerprint observed public fake-thinking text rather than native reasoning API output.",
+            metrics={"fake_think_tag_observed": True},
+        )
+    ]
+
+
+def _full_fake_evidence(
+    scenario: RelayVerdict,
+    model: str,
+    *,
+    drift_check: bool,
+    claim_channel: str,
+) -> list[RelayEvidence]:
     base = [
         RelayEvidence(
             key="full_profile_composite_verdict",
@@ -134,11 +353,62 @@ def _full_fake_evidence(scenario: RelayVerdict, model: str, *, drift_check: bool
             summary="Composite verdict was derived from sanitized subprofile verdicts.",
             metrics={
                 "general": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["minimal_live_connectivity"]},
+                "identity": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["identity_response_envelope"]},
+                "channel": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["channel_claim_consistency"]},
+                "reasoning": (
+                    {"verdict": "pass", "risk_level": "low", "evidence_keys": ["reasoning_native_signal"]}
+                    if scenario == RelayVerdict.PASS
+                    else {
+                        "verdict": "fail",
+                        "risk_level": "high",
+                        "evidence_keys": ["reasoning_native_signal", "reasoning_fake_thinking_signal"],
+                    }
+                ),
                 "streaming": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["stream_content_delta", "stream_terminal_finish"]},
                 "schema": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["schema_tool_envelope", "schema_arguments_json"]},
                 "privacy": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["privacy_marker_leakage"]},
                 "security": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["security_prompt_extraction", "security_override_resistance"]},
                 "context": {"verdict": "pass", "risk_level": "low", "evidence_keys": ["context_anchor_retention"]},
+            },
+        ),
+        RelayEvidence(
+            key="identity_response_envelope",
+            category=RelayRiskCategory.MODEL_SUBSTITUTION,
+            status="pass",
+            summary="Deterministic fake identity fingerprint observed no model-family contradiction.",
+            metrics={
+                "claimed_model_family": "claude" if "claude" in sanitize_public_relay_text(model).lower() else "unknown",
+                "observed_model_family": "claude" if "claude" in sanitize_public_relay_text(model).lower() else "unknown",
+                "response_shape_family": "openai_chat_completions",
+                "response_id_pattern": "msg_...",
+            },
+        ),
+        RelayEvidence(
+            key="channel_claim_consistency",
+            category=RelayRiskCategory.INFRASTRUCTURE_FINGERPRINT,
+            status="pass",
+            summary="Deterministic fake channel fingerprint observed no channel-claim contradiction.",
+            metrics={
+                "claim_channel": sanitize_public_relay_text(claim_channel),
+                "observed_channel_family": None,
+                "official_claim_contradicted": False,
+                "compatible_gateway_claim": False,
+            },
+        ),
+        RelayEvidence(
+            key="reasoning_native_signal",
+            category=RelayRiskCategory.MODEL_SUBSTITUTION,
+            status="pass" if scenario == RelayVerdict.PASS else "fail",
+            summary=(
+                "Deterministic fake reasoning fingerprint observed no native reasoning contradiction."
+                if scenario == RelayVerdict.PASS
+                else "Deterministic fake reasoning fingerprint observed missing expected native reasoning evidence."
+            ),
+            metrics={
+                "expected_reasoning_family": None if scenario == RelayVerdict.PASS else "claude_reasoning",
+                "native_reasoning_field_observed": True if scenario == RelayVerdict.PASS else False,
+                "reasoning_content_observed": False,
+                "thinking_block_observed": True if scenario == RelayVerdict.PASS else False,
             },
         ),
         RelayEvidence(
@@ -181,14 +451,27 @@ def _full_fake_evidence(scenario: RelayVerdict, model: str, *, drift_check: bool
                 },
             )
         )
+        base.append(
+            RelayEvidence(
+                key="reasoning_fake_thinking_signal",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
+                status="suspicious",
+                summary="Deterministic fake observation shows a sanitized fake-thinking marker in ordinary content.",
+                metrics={"fake_thinking_text_observed": True},
+            )
+        )
     if scenario == RelayVerdict.FAIL:
         base.append(
             RelayEvidence(
-                key="schema_preservation_failure",
-                category=RelayRiskCategory.SCHEMA_TOOL_REWRITE,
+                key="identity_model_field_consistency",
+                category=RelayRiskCategory.MODEL_SUBSTITUTION,
                 status="fail",
-                summary="Deterministic fake observation shows required structured fields were rewritten before verification.",
-                metrics={"tool_call_observed": False, "arguments_json_parseable": False},
+                summary="Deterministic fake observation shows a strong model-family contradiction.",
+                metrics={
+                    "claimed_model_family": "claude",
+                    "observed_model_family": "deepseek",
+                    "model_family_contradiction": True,
+                },
             )
         )
     if scenario == RelayVerdict.INCONCLUSIVE:
@@ -270,6 +553,9 @@ def _risk_level_for(scenario: RelayVerdict) -> RelayRiskLevel:
 
 def _profile_category(profile: RelayAuditProfile) -> RelayRiskCategory:
     return {
+        RelayAuditProfile.IDENTITY: RelayRiskCategory.MODEL_SUBSTITUTION,
+        RelayAuditProfile.CHANNEL: RelayRiskCategory.INFRASTRUCTURE_FINGERPRINT,
+        RelayAuditProfile.REASONING: RelayRiskCategory.MODEL_SUBSTITUTION,
         RelayAuditProfile.STREAMING: RelayRiskCategory.STREAMING_INTEGRITY,
         RelayAuditProfile.SCHEMA: RelayRiskCategory.SCHEMA_TOOL_REWRITE,
         RelayAuditProfile.PRIVACY: RelayRiskCategory.PROMPT_INSTRUCTION_LEAKAGE,

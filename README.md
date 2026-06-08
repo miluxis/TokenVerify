@@ -74,7 +74,8 @@ change the hard-fail authenticity scoring.
 
 Relay Audit is the focused CLI product path for auditing OpenAI-compatible relay
 endpoints. It supports deterministic fake runs and guarded live checks across
-`general`, `streaming`, `schema`, `privacy`, `security`, `context`, and `full` profiles.
+`general`, `identity`, `channel`, `reasoning`, `streaming`, `schema`,
+`privacy`, `security`, `context`, and `full` profiles.
 For ordinary users, `full` is the default public report path. Individual profiles
 are advanced technical diagnostics.
 
@@ -171,6 +172,9 @@ support, but they do not claim that a whole fraud scenario passed or failed.
 | --- | --- |
 | `full` | Default. Use this when you want one combined scenario report for record-keeping, comparison, or public presentation. |
 | `general` | Use this first to confirm the relay is basically reachable and returns a compatible response envelope. |
+| `identity` | Use this when your main concern is wrong-model or lower-model substitution. |
+| `channel` | Use this when your main concern is observed Bedrock, Azure, OpenRouter, OneAPI, NewAPI, or proxy-compatible channel signals. |
+| `reasoning` | Use this when your main concern is fake Thinking/reasoning capability or missing native reasoning fields. |
 | `streaming` | Use this when you care whether typing-style streaming looks stable, complete, and not obviously synthetic. |
 | `schema` | Use this when your workload depends on tool calling, function calling, or JSON structure that must survive the relay unchanged. |
 | `privacy` | Use this when you worry about prompt leakage, hidden instruction echo, message rewrite, or upstream error disclosure. |
@@ -179,11 +183,21 @@ support, but they do not claim that a whole fraud scenario passed or failed.
 
 ## Fraud Scenario Summary
 
-Full relay reports include a Fraud Scenario Summary above the detailed technical evidence. It maps existing evidence into user-facing fraud categories such as model identity substitution, channel-source misrepresentation, account-pool or mixed-routing drift, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+Full relay reports include a Fraud Scenario Summary above the detailed technical evidence. It maps existing evidence into user-facing fraud categories such as model identity substitution, channel-source misrepresentation, Thinking/reasoning forgery, account-pool or mixed-routing drift, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
 
-Scenario status values are `detected`, `suspicious`, `not_detected`, and `insufficient_evidence`. `insufficient_evidence` means the scenario is relevant but the current run did not collect enough evidence, for example when drift checking was not enabled. Future-only categories such as billing reconciliation or cache-replay databases are not shown as public report rows by default.
+Full relay reports use a signal-first structure:
 
-The summary is a black-box risk explanation. It does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology. Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
+- Overall Conclusion
+- Fraud Scenario Summary
+- Technical Signal Overview
+- Technical Evidence Summary
+- Method Note
+
+The overall judgment describes observed risk signals rather than presenting a simple pass/fail verdict. Main observed risk signals are rendered with a plain-language explanation first, followed by sanitized evidence fields, so a public report can be read without losing the underlying technical breadcrumbs.
+
+Scenario status values are `detected`, `suspicious`, `not_detected`, and `insufficient_evidence`. `not_detected` means the relevant signals were checked and not observed; it is not an empty result. `insufficient_evidence` means the scenario is relevant but the current run did not collect enough evidence, for example when drift checking was not enabled. Future-only categories such as billing reconciliation or cache-replay databases are not shown as public report rows by default.
+
+The summary is a black-box risk explanation. It can surface candidate upstream-family signals such as `Claude-like`, `OpenAI-compatible`, `DeepSeek-like`, `Qwen-like`, or `GLM-like` when evidence supports them, but these are behavioral fingerprints, not proof of exact upstream identity. It does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology. Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
 
 Config-driven relay audit can use this shape:
 
@@ -206,7 +220,7 @@ relay:
 | OpenAI-compatible Claude relay | [`examples/claude-openai-compatible-audit.yaml`](examples/claude-openai-compatible-audit.yaml) | Chat Completions shape, Claude model claim consistency, Claude thinking/version clues, reasoning leakage, relay and channel-risk symptoms. |
 | OpenAI-compatible OpenAI | [`examples/openai-compatible-audit.yaml`](examples/openai-compatible-audit.yaml) | OpenAI-style Chat Completions shape, model-family consistency, reasoning capability evidence, streaming sequence, official-vs-compatible channel clues. |
 | DeepSeek R1 | [`examples/deepseek-compatible-audit.yaml`](examples/deepseek-compatible-audit.yaml) | DeepSeek model-family consistency, R1 `reasoning_content`, reasoning/content stream order, official-vs-compatible channel clues. |
-| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible relay contract checks for general connectivity, SSE streaming, schema/tool preservation, privacy leakage, prompt-security boundaries, context retention, and full composite reporting. |
+| Relay Audit CLI | `tokenverify audit --base-url ... --model ...` | OpenAI-compatible relay checks for identity, channel, reasoning, general connectivity, SSE streaming, schema/tool preservation, privacy leakage, prompt-security boundaries, context retention, and full composite reporting. |
 
 Current intentional boundaries:
 
@@ -222,6 +236,7 @@ Current intentional boundaries:
 - Relay Audit does not run an 8-cycle repeated full-profile deep audit in the current release.
 - Relay Audit `security` is bounded black-box evidence about prompt boundaries; it does not prove malicious intent or complete jailbreak resistance.
 - Relay Audit `context` is bounded anchor-retention evidence. It does not measure exact context-window size, estimate billing, or prove malicious truncation.
+- Relay Audit `identity`, `channel`, and `reasoning` produce black-box fingerprint signals. They can show contradictions and candidate-family signals, but not exact upstream identity without hard evidence.
 
 Open-source Core boundary:
 
@@ -430,6 +445,9 @@ src/tokenverify/
   relay_streaming.py          # Streaming/SSE relay profile
   relay_schema.py             # Schema/tool relay profile
   relay_privacy.py            # Privacy leakage relay profile
+  relay_identity.py           # Model identity fingerprint relay profile
+  relay_channel.py            # Channel/source fingerprint relay profile
+  relay_reasoning.py          # Thinking/reasoning fingerprint relay profile
   relay_full.py               # Full composite relay profile
   relay_report.py             # Sanitized Relay Audit Markdown report
   relay_safety.py             # Live gate, URL/path washing, relay sanitizers

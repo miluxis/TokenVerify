@@ -230,6 +230,18 @@ def authorize_relay_live_execution(
             "general_minimal_connectivity",
             "single_non_streaming_request",
         ),
+        RelayAuditProfile.IDENTITY: (
+            "identity_fingerprint",
+            "bounded_identity_requests",
+        ),
+        RelayAuditProfile.CHANNEL: (
+            "channel_fingerprint",
+            "bounded_channel_requests",
+        ),
+        RelayAuditProfile.REASONING: (
+            "reasoning_fingerprint",
+            "bounded_reasoning_requests",
+        ),
         RelayAuditProfile.STREAMING: (
             "streaming_minimal_sse_integrity",
             "single_streaming_request",

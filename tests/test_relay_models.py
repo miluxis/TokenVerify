@@ -4,6 +4,7 @@ from tokenverify.relay_models import (
     RelayAuditConfigError,
     RelayAuditMode,
     RelayAuditProfile,
+    RelayChannelClaim,
     RelayEvidence,
     RelayPackSummary,
     RelayResult,
@@ -12,6 +13,7 @@ from tokenverify.relay_models import (
     RelayRuntimeCategory,
     RelayVerdict,
     parse_relay_drift_check,
+    parse_relay_channel_claim,
     parse_relay_profile,
     parse_relay_scenario,
 )
@@ -19,6 +21,9 @@ from tokenverify.relay_models import (
 
 def test_relay_profile_validation_accepts_all_charter_values():
     assert parse_relay_profile(" general ") == RelayAuditProfile.GENERAL
+    assert parse_relay_profile("identity") == RelayAuditProfile.IDENTITY
+    assert parse_relay_profile("channel") == RelayAuditProfile.CHANNEL
+    assert parse_relay_profile("reasoning") == RelayAuditProfile.REASONING
     assert parse_relay_profile("STREAMING") == RelayAuditProfile.STREAMING
     assert parse_relay_profile("schema") == RelayAuditProfile.SCHEMA
     assert parse_relay_profile("privacy") == RelayAuditProfile.PRIVACY
@@ -32,8 +37,27 @@ def test_relay_profile_validation_rejects_unknown_value():
         parse_relay_profile("wrong-value")
 
     assert "Unknown relay audit profile" in str(exc_info.value)
-    assert "general, streaming, schema, privacy, security, context, full" in str(exc_info.value)
+    assert "general, identity, channel, reasoning, streaming, schema, privacy, security, context, full" in str(exc_info.value)
     assert "wrong-value" not in str(exc_info.value)
+
+
+def test_parse_relay_channel_claim_accepts_known_values():
+    assert parse_relay_channel_claim("official") == RelayChannelClaim.OFFICIAL
+    assert parse_relay_channel_claim("BEDROCK") == RelayChannelClaim.BEDROCK
+    assert parse_relay_channel_claim("azure") == RelayChannelClaim.AZURE
+    assert parse_relay_channel_claim("openrouter") == RelayChannelClaim.OPENROUTER
+    assert parse_relay_channel_claim("proxy") == RelayChannelClaim.PROXY
+    assert parse_relay_channel_claim("unknown") == RelayChannelClaim.UNKNOWN
+
+
+def test_parse_relay_channel_claim_rejects_unknown_value_without_echo():
+    with pytest.raises(RelayAuditConfigError) as exc_info:
+        parse_relay_channel_claim("https://relay.example/v1?token=secret")
+
+    message = str(exc_info.value)
+    assert "Accepted values" in message
+    assert "relay.example" not in message
+    assert "token=secret" not in message
 
 
 def test_fake_scenario_validation_accepts_and_rejects_values():

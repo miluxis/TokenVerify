@@ -107,6 +107,9 @@ PYTHONPATH=src python3 -m tokenverify.cli audit --config ./relay-audit.yaml
 | --- | --- |
 | `full` | 默认选择。用于一次性生成综合场景报告，适合留档、对比或公开展示。 |
 | `general` | 先确认这个 relay 能不能正常返回兼容包络。 |
+| `identity` | 你关心模型身份与能力冒充，例如低价/低版本模型冒充高价模型。 |
+| `channel` | 你关心是否观察到 Bedrock、Azure、OpenRouter、OneAPI、NewAPI 或 proxy 兼容渠道信号。 |
+| `reasoning` | 你关心 Thinking/reasoning 能力是否伪造，或声明推理模型是否缺少原生 reasoning 字段。 |
 | `streaming` | 你关心流式输出是否稳定、完整、不像伪流式。 |
 | `schema` | 你依赖 tool calling、function calling 或 JSON 结构，不希望 relay 把结构弄坏。 |
 | `privacy` | 你担心提示词泄漏、隐藏指令回显、消息改写或上游错误暴露。 |
@@ -122,6 +125,46 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
   --base-url https://your-relay.example/v1 \
   --model your-model-name \
   --profile general \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+### identity
+
+检查模型声明、响应包络、模型字段和候选上游家族信号。适合判断“挂羊头卖狗肉”的模型身份矛盾。
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --profile identity \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+### channel
+
+检查是否观察到 Bedrock、Azure、OpenRouter、OneAPI、NewAPI 或 proxy 标记。
+报告会直接展示脱敏后的渠道指纹信号；如果你要对照商家宣传，可以用报告中的 observed channel signal 自行比对。
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --profile channel \
+  --api-key-env RELAY_API_KEY \
+  --live
+```
+
+### reasoning
+
+检查 Claude/OpenAI/DeepSeek/common reasoning 信号，以及正文 `<think>` 伪装是否只作为公开文本出现。
+
+```bash
+PYTHONPATH=src python3 -m tokenverify.cli audit \
+  --base-url https://your-relay.example/v1 \
+  --model your-model-name \
+  --profile reasoning \
   --api-key-env RELAY_API_KEY \
   --live
 ```
@@ -200,7 +243,7 @@ PYTHONPATH=src python3 -m tokenverify.cli audit \
 按固定顺序串行运行：
 
 ```text
-general -> streaming -> schema -> privacy -> security -> context
+general -> identity -> channel -> reasoning -> streaming -> schema -> privacy -> security -> context
 ```
 
 适合一次性出综合报告。由于是串行执行，如果目标 relay 很慢，各子检查的超时会线性叠加。
@@ -317,9 +360,14 @@ Relay Audit 报告默认适合公开展示。报告允许展示：
 
 Fraud Scenario Summary / 欺诈场景总结：
 
-- Full relay 报告会把已有技术证据映射成普通用户能理解的欺诈场景，例如模型身份冒充、渠道来源伪装、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖。
+- Full relay 报告采用 signal-first 结构：总体结论、欺诈场景总结、技术信号概览、技术证据摘要和方法说明。
+- 总体判断描述本次观察到的风险信号，不再把普通用户主结论写成简单 pass/fail。
+- `主要风险信号` 会先给普通用户可读解释，再保留脱敏后的字段证据，例如 `安全边界探针失败... 字段: sensitive_core_echo_detected=True`。
+- Full relay 报告会把已有技术证据映射成普通用户能理解的欺诈场景，例如模型身份冒充、渠道来源伪装、Thinking/reasoning 伪造、Prompt/Context 被改写、假 streaming、schema/tool 破坏、隐私泄漏、容量或错误掩盖。
 - 场景状态包括 `detected`、`suspicious`、`not_detected` 和 `insufficient_evidence`。
+- `not_detected` 表示相关信号已检查但未观察到，不是空结论。
 - `insufficient_evidence` 表示该场景与当前报告相关，但本次证据还不够，例如没有开启漂移检查。
+- 报告可以在证据支持时输出 `Claude-like`、`OpenAI-compatible`、`DeepSeek-like`、`Qwen-like`、`GLM-like` 等候选上游家族信号，但这是黑盒行为指纹，不是精确真实上游身份的证明。
 - 这不证明精确上游模型身份、法律意义上的违法、真实意图、精确地理路由、精确账单或隐藏后台拓扑。
 - billing reconciliation / 账单对账、缓存检测数据库、渠道指纹库、批量扫描、dashboard 和报告对比数据库不属于当前开源 Core。
 

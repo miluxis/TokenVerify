@@ -157,7 +157,7 @@ def test_unified_relay_audit_defaults_to_full_profile_for_direct_relay_inputs(tm
 
     assert result.exit_code == 0
     markdown = output_path.read_text(encoding="utf-8")
-    assert "- Profile：`full`" in markdown or "- 本次 profile：`full`" in markdown
+    assert "- Profile: `full`" in markdown or "- 本次 profile：`full`" in markdown
 
 
 def test_unified_relay_audit_accepts_drift_check_yes(tmp_path):
@@ -206,6 +206,64 @@ def test_unified_relay_audit_rejects_invalid_drift_check():
 
     assert result.exit_code == 2
     assert "--drift-check must be yes or no" in result.output
+
+
+def test_unified_relay_audit_help_does_not_expose_claim_channel():
+    result = CliRunner().invoke(app, ["audit", "--help"])
+
+    assert result.exit_code == 0
+    assert "--claim-channel" not in result.output
+
+
+def test_unified_relay_audit_rejects_claim_channel_as_unknown_option():
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--claim-channel",
+            "openrouter",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "claim-channel" in result.output
+
+
+def test_relay_audit_compat_help_does_not_expose_claim_channel():
+    result = CliRunner().invoke(app, ["relay-audit", "--help"])
+
+    assert result.exit_code == 0
+    assert "--claim-channel" not in result.output
+
+
+def test_unified_relay_audit_fake_run_still_works_without_claim_channel(tmp_path):
+    output_path = tmp_path / "claim-channel.md"
+    result = CliRunner().invoke(
+        app,
+        [
+            "audit",
+            "--base-url",
+            "https://api.relay.com/v1",
+            "--model",
+            "example-model",
+            "--fake-run",
+            "pass",
+            "--api-key-env",
+            "RELAY_API_KEY",
+            "--output",
+            str(output_path),
+        ],
+        env={},
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
 
 
 def test_unified_audit_relay_detail_audit_yes_is_rejected():
@@ -388,8 +446,8 @@ def test_relay_cli_live_runtime_inconclusive_exits_three_and_writes_report(tmp_p
     assert result.exit_code == 3
     assert "Relay audit completed with verdict: inconclusive" in result.output
     assert "sk-secret" not in result.output
-    assert output_path.exists()
-    markdown = output_path.read_text(encoding="utf-8")
+    assert output_path.is_dir()
+    markdown = (output_path / "full.md").read_text(encoding="utf-8")
     assert "Inconclusive" in markdown
     assert "Runtime category" in markdown
     assert "https://" not in markdown
@@ -1370,7 +1428,7 @@ def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_module, "_default_relay_privacy_transport_factory", fake_privacy_factory)
     monkeypatch.setattr(cli_module, "_default_relay_security_transport_factory", fake_security_factory)
     monkeypatch.setattr(cli_module, "_default_relay_context_transport_factory", fake_context_factory)
-    output_path = tmp_path / "full-report.md"
+    output_path = tmp_path / "full-report"
     result = CliRunner().invoke(
         app,
         [
@@ -1391,11 +1449,32 @@ def test_relay_cli_full_live_writes_sanitized_report(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0
-    assert calls == ["general", "streaming", "schema", "privacy", "security", "security", "security", "context", "context"]
-    markdown = output_path.read_text(encoding="utf-8")
+    assert calls == [
+        "general",
+        "general",
+        "general",
+        "general",
+        "streaming",
+        "schema",
+        "privacy",
+        "security",
+        "security",
+        "security",
+        "context",
+        "context",
+    ]
+    assert output_path.is_dir()
+    assert (output_path / "full.md").exists()
+    assert (output_path / "01-general.md").exists()
+    assert (output_path / "02-identity.md").exists()
+    assert (output_path / "03-channel.md").exists()
+    assert (output_path / "04-reasoning.md").exists()
+    markdown = (output_path / "full.md").read_text(encoding="utf-8")
+    channel_markdown = (output_path / "03-channel.md").read_text(encoding="utf-8")
     assert "Profile}：`full`" not in markdown
     assert "Profile：`full`" in markdown or "Profile: `full`" in markdown
-    assert "Executed Technical Checks" in markdown
+    assert "Technical Signal Overview" in markdown
+    assert "Technical Profile Report" in channel_markdown
     assert "api.relay.com" in markdown
     assert "chat/completions" not in markdown
     assert "token=secret" not in markdown
@@ -1437,6 +1516,32 @@ def test_relay_cli_full_live_raw_secret_guard_wins_before_report(monkeypatch, tm
     assert touched is False
     assert not output_path.exists()
     assert "sk-or-v1-private-token" not in result.output
+
+
+def test_relay_cli_rejects_secret_looking_model_before_filename(tmp_path):
+    output_path = tmp_path / "should-not-exist.md"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "relay-audit",
+            "--base-url",
+            "https://relay.example/v1",
+            "--model",
+            "sk-yb1k47xzmo3n2lx2tfuzjwkaphaw4qfs2eli6h3iqgkawali",
+            "--profile",
+            "channel",
+            "--fake-run",
+            "pass",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert not output_path.exists()
+    assert "sk-yb1k47xzmo3n2lx2tfuzjwkaphaw4qfs2eli6h3iqgkawali" not in result.output
+    assert "--model" in result.output
 
 
 def test_unified_audit_context_fake_run_pass_creates_low_risk_report(tmp_path):

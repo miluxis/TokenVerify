@@ -1,5 +1,31 @@
 # Changelog
 
+## TokenVerify v0.5.0-preview
+
+This preview release upgrades Relay Audit into a scenario-first fraud-risk report for open-source Core users.
+
+### Highlights
+
+- Added relay `identity`, `channel`, and `reasoning` fingerprint profiles.
+- Expanded `full` relay profile to run `general`, `identity`, `channel`, `reasoning`, `streaming`, `schema`, `privacy`, `security`, and `context`.
+- Added Fraud Scenario Summary for model identity substitution, channel-source misrepresentation, mixed-routing drift, reasoning forgery, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+- Added bounded `--drift-check yes` sampling for account-pool, reverse-resource, fallback, and mixed-provider drift signals.
+- Improved English and Chinese full reports with signal-first conclusions, specific `not_detected` explanations, plain-language risk summaries, and sanitized technical breadcrumbs.
+- Preserved black-box boundaries: candidate upstream-family signals are behavioral fingerprints, not exact upstream identity proof.
+
+### Safety Boundaries
+
+- Default tests do not send live network traffic.
+- Reports remain sanitized: no API key values, auth headers, full prompts, full completion text, full endpoint URLs, local absolute paths, or private challenge answers.
+- `--live` remains required for real relay network checks.
+- Commercial capabilities such as restricted challenge-pack governance, batch scanning, dashboards, JSON/API output, hosted monitoring, billing reconciliation, and report databases remain outside open-source Core.
+
+### Verification
+
+Local verification for this release:
+
+- `536 passed, 1 deselected`
+
 ## TokenVerify v0.2.0-preview
 
 This preview release completes the open-source TokenVerify Core CLI for local endpoint and relay auditing.

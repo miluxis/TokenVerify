@@ -147,6 +147,9 @@ scenario scope without claiming a whole fraud scenario passed or failed.
 | --- | --- |
 | `full` | Default. You want one combined relay report for comparison, filing, or public sharing. |
 | `general` | You want a basic compatibility and reachability check before deeper work. |
+| `identity` | You care whether a cheaper or different model family is masquerading as the claimed model. |
+| `channel` | You care whether Bedrock, Azure, OpenRouter, OneAPI, NewAPI, or proxy-compatible channel markers are observed. |
+| `reasoning` | You care whether Thinking/reasoning capability is missing, forged, or only exposed as public `<think>` text. |
 | `streaming` | You care whether streaming feels complete and not obviously synthetic. |
 | `schema` | You rely on tool calling or JSON structure and want to see whether the relay preserves it. |
 | `privacy` | You care about prompt leakage symptoms, message rewrite, or upstream disclosure behavior. |
@@ -193,6 +196,7 @@ Current Relay Audit boundaries:
 - No silent repeated full-profile deep audit. Use `--drift-check yes` when you explicitly want bounded repeated sampling for account-pool, reverse-resource, fallback, or mixed-routing drift signals.
 - `security` provides bounded black-box prompt-boundary evidence; it does not prove malicious intent or complete jailbreak resistance.
 - `context` provides bounded public anchor-retention evidence; it does not measure exact context-window size, estimate billing, or prove malicious truncation.
+- `identity`, `channel`, and `reasoning` provide black-box fingerprint evidence. They can show contradictions and candidate-family signals, but do not prove exact upstream identity without hard evidence.
 - Public relay reports hide full prompt text, model response text, header values, full URLs, local absolute paths, and private challenge answers.
 
 Open-source Core boundary:
@@ -202,9 +206,14 @@ Open-source Core boundary:
 
 Fraud Scenario Summary:
 
-- Full relay reports include a Fraud Scenario Summary that maps existing evidence into user-facing categories such as model identity substitution, channel-source misrepresentation, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
+- Full relay reports use a signal-first structure: Overall Conclusion, Fraud Scenario Summary, Technical Signal Overview, Technical Evidence Summary, and Method Note.
+- The overall judgment describes observed risk signals rather than presenting a simple pass/fail verdict.
+- Main observed risk signals include a plain-language explanation followed by sanitized fields, for example `Security-boundary probe failed... Fields: sensitive_core_echo_detected=True`.
+- Full relay reports include a Fraud Scenario Summary that maps existing evidence into user-facing categories such as model identity substitution, channel-source misrepresentation, Thinking/reasoning forgery, prompt/context manipulation, fake streaming, schema/tool breakage, privacy leakage, and capacity/error masking.
 - Scenario statuses are `detected`, `suspicious`, `not_detected`, and `insufficient_evidence`.
+- `not_detected` means the relevant signals were checked and not observed; it is not an empty result.
 - `insufficient_evidence` means the scenario is relevant but the current run did not collect enough evidence, for example when drift checking was not enabled.
+- Candidate upstream-family labels are reported as black-box fingerprints, for example `Claude-like`, `OpenAI-compatible`, `DeepSeek-like`, `Qwen-like`, or `GLM-like`; they are not exact identity proof.
 - The summary does not prove exact upstream model identity, legal wrongdoing, true intent, exact geography, exact billing, or hidden backend topology.
 - Billing reconciliation, cache-detection databases, channel fingerprint libraries, batch scanning, dashboards, and report comparison databases remain outside the open-source Core.
 

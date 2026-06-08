@@ -329,6 +329,35 @@ def test_run_relay_audit_fake_scenario_returns_result_without_live_gate():
     assert result.endpoint_host == "api.relay.com"
 
 
+def test_identity_channel_reasoning_fake_runs_are_implemented_and_sanitized():
+    for profile in (RelayAuditProfile.IDENTITY, RelayAuditProfile.CHANNEL, RelayAuditProfile.REASONING):
+        for scenario in (
+            RelayVerdict.PASS,
+            RelayVerdict.SUSPICIOUS,
+            RelayVerdict.FAIL,
+            RelayVerdict.INCONCLUSIVE,
+        ):
+            result = run_relay_audit(
+                RelayAuditRequest(
+                    base_url="https://api.relay.com/v1/private?token=secret#frag",
+                    model="claude-opus-4-5-20251101",
+                    profile=profile,
+                    fake_scenario=scenario,
+                    pack_path=None,
+                    live=False,
+                )
+            )
+
+            assert result.profile == profile
+            assert result.verdict == scenario
+            assert result.evidence
+            assert not any(item.key.endswith("_profile_not_implemented") for item in result.evidence)
+            public = "\n".join(item.summary for item in result.evidence)
+            assert "https://" not in public
+            assert "/v1/private" not in public
+            assert "token=secret" not in public
+
+
 def test_run_relay_audit_without_fake_run_blocks_missing_live():
     request = RelayAuditRequest(
         base_url="https://api.relay.com/v1",
@@ -608,7 +637,20 @@ def test_run_relay_audit_with_live_full_routes_factories_in_order():
         )
     )
 
-    assert calls == ["general", "streaming", "schema", "privacy", "security", "security", "security", "context", "context"]
+    assert calls == [
+        "general",
+        "general",
+        "general",
+        "general",
+        "streaming",
+        "schema",
+        "privacy",
+        "security",
+        "security",
+        "security",
+        "context",
+        "context",
+    ]
     assert result.profile == RelayAuditProfile.FULL
     assert result.verdict == RelayVerdict.PASS
 

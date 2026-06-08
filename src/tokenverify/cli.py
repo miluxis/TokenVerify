@@ -19,14 +19,18 @@ from tokenverify.models import Rating
 from tokenverify.report import render_markdown
 from tokenverify.relay_audit import RelayAuditRequest, exit_code_for_relay_verdict, run_relay_audit
 from tokenverify.relay_context import RelayContextTransport
+from tokenverify.relay_channel import RelayChannelTransport
+from tokenverify.relay_identity import RelayIdentityTransport
 from tokenverify.relay_live import RelayLiveTransportResponse
 from tokenverify.relay_models import (
     RelayAuditConfigError,
     RelayAuditProfile,
+    parse_relay_channel_claim,
     parse_relay_drift_check,
     parse_relay_profile,
     parse_relay_scenario,
 )
+from tokenverify.relay_reasoning import RelayReasoningTransport
 from tokenverify.relay_report import render_relay_markdown
 from tokenverify.relay_safety import RelayAuditSecurityViolation, basename_only, guard_api_key_env_name, sanitize_public_relay_text
 from tokenverify.relay_security import RelaySecurityTransport
@@ -178,6 +182,7 @@ def audit(
             profile=profile,
             fake_run=fake_run,
             drift_check=drift_check,
+            claim_channel="unknown",
             output=output,
             language=report_language,
             api_key=api_key,
@@ -254,6 +259,7 @@ def relay_audit(
         profile=profile,
         fake_run=fake_run,
         drift_check=drift_check,
+        claim_channel="unknown",
         output=output,
         language=language,
         api_key=api_key,
@@ -271,6 +277,7 @@ def _run_relay_audit_cli_flow(
     profile: str,
     fake_run: str | None,
     drift_check: str,
+    claim_channel: str,
     output: str | None,
     language: str,
     api_key: str | None,
@@ -285,10 +292,12 @@ def _run_relay_audit_cli_flow(
             err=True,
         )
     try:
+        _guard_relay_model_name(model)
         api_key_env = guard_api_key_env_name(api_key_env)
         report_language = _normalize_language(language)
         relay_profile = parse_relay_profile(profile)
         parsed_drift_check = parse_relay_drift_check(drift_check)
+        parsed_claim_channel = parse_relay_channel_claim(claim_channel)
         relay_scenario = parse_relay_scenario(fake_run) if fake_run else None
         resolved_api_key = _resolve_relay_api_key(
             api_key=api_key,
@@ -304,6 +313,7 @@ def _run_relay_audit_cli_flow(
             live=live,
             api_key=resolved_api_key,
             drift_check=parsed_drift_check,
+            claim_channel=parsed_claim_channel,
         )
         request = _with_relay_live_transports(request, relay_profile, relay_scenario)
         result = run_relay_audit(request)
@@ -318,14 +328,14 @@ def _run_relay_audit_cli_flow(
         typer.echo(sanitize_public_relay_text(exc))
         raise typer.Exit(1) from exc
 
-    output_path = (
-        Path(output)
-        if output
-        else _next_available_relay_report_path(model, date.today(), profile=relay_profile.value)
+    output_path = _relay_output_path_for_result(
+        result=result,
+        output=output,
+        model=model,
+        today=date.today(),
+        profile=relay_profile.value,
     )
-    markdown = render_relay_markdown(result, language=report_language)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(markdown, encoding="utf-8")
+    _write_relay_report_output(result=result, output_path=output_path, language=report_language)
     typer.echo(f"Wrote relay audit report: {basename_only(output_path)}")
     typer.echo(f"Relay audit completed with verdict: {result.verdict.value}")
     exit_code = exit_code_for_relay_verdict(result.verdict)
@@ -342,6 +352,12 @@ def _with_relay_live_transports(
         return request
     if relay_profile == RelayAuditProfile.STREAMING:
         return replace(request, stream_transport_factory=_default_relay_stream_transport_factory(request))
+    if relay_profile == RelayAuditProfile.IDENTITY:
+        return replace(request, identity_transport_factory=_default_relay_identity_transport_factory(request))
+    if relay_profile == RelayAuditProfile.CHANNEL:
+        return replace(request, channel_transport_factory=_default_relay_channel_transport_factory(request))
+    if relay_profile == RelayAuditProfile.REASONING:
+        return replace(request, reasoning_transport_factory=_default_relay_reasoning_transport_factory(request))
     if relay_profile == RelayAuditProfile.SCHEMA:
         return replace(request, schema_transport_factory=_default_relay_schema_transport_factory(request))
     if relay_profile == RelayAuditProfile.PRIVACY:
@@ -354,6 +370,9 @@ def _with_relay_live_transports(
         return replace(
             request,
             live_transport_factory=_default_relay_live_transport_factory(request),
+            identity_transport_factory=_default_relay_identity_transport_factory(request),
+            channel_transport_factory=_default_relay_channel_transport_factory(request),
+            reasoning_transport_factory=_default_relay_reasoning_transport_factory(request),
             stream_transport_factory=_default_relay_stream_transport_factory(request),
             schema_transport_factory=_default_relay_schema_transport_factory(request),
             privacy_transport_factory=_default_relay_privacy_transport_factory(request),
@@ -368,6 +387,18 @@ def _default_relay_live_transport_factory(request: RelayAuditRequest):
         return _default_relay_live_transport(request)
 
     return factory
+
+
+def _default_relay_identity_transport_factory(request: RelayAuditRequest):
+    return _default_relay_live_transport_factory(request)
+
+
+def _default_relay_channel_transport_factory(request: RelayAuditRequest):
+    return _default_relay_live_transport_factory(request)
+
+
+def _default_relay_reasoning_transport_factory(request: RelayAuditRequest):
+    return _default_relay_live_transport_factory(request)
 
 
 def _default_relay_live_transport(request: RelayAuditRequest):
@@ -617,6 +648,7 @@ def _load_relay_config(data: dict[str, Any] | None) -> dict[str, Any]:
         "profile": str(relay.get("profile") or "full"),
         "fake_run": str(relay["fake_run"]) if relay.get("fake_run") else None,
         "drift_check": str(relay.get("drift_check") or "no"),
+        "claim_channel": str(relay.get("claim_channel") or "unknown"),
         "api_key_env": str(relay["api_key_env"]) if relay.get("api_key_env") else None,
         "pack_path": str(relay["pack_path"]) if relay.get("pack_path") else None,
         "live": bool(relay.get("live", False)),
@@ -656,6 +688,7 @@ def _next_available_report_path(model: str, today) -> Path:
 
 
 def _next_available_relay_report_path(model: str, today, profile: str = "full") -> Path:
+    _guard_relay_model_name(model)
     model_slug = _slugify_model_name(model)
     normalized_profile = profile.strip().lower()
     if normalized_profile == "full":
@@ -673,9 +706,62 @@ def _next_available_relay_report_path(model: str, today, profile: str = "full") 
     raise RelayAuditConfigError("Could not find an available relay report filename.")
 
 
+def _next_available_relay_report_dir(model: str, today) -> Path:
+    _guard_relay_model_name(model)
+    model_slug = _slugify_model_name(model)
+    base_path = Path("reports") / f"relay-{model_slug}-{today}"
+    if not base_path.exists():
+        return base_path
+    for index in range(2, 1000):
+        candidate = base_path.with_name(f"{base_path.name}-{index}")
+        if not candidate.exists():
+            return candidate
+    raise RelayAuditConfigError("Could not find an available relay report directory.")
+
+
+def _relay_output_path_for_result(
+    *,
+    result,
+    output: str | None,
+    model: str,
+    today,
+    profile: str,
+) -> Path:
+    if output:
+        return Path(output)
+    if result.profile == RelayAuditProfile.FULL and result.child_results:
+        return _next_available_relay_report_dir(model, today)
+    return _next_available_relay_report_path(model, today, profile=profile)
+
+
+def _write_relay_report_output(*, result, output_path: Path, language: str) -> None:
+    if result.profile == RelayAuditProfile.FULL and result.child_results:
+        output_path.mkdir(parents=True, exist_ok=True)
+        for index, child in enumerate(result.child_results, start=1):
+            child_path = output_path / f"{index:02d}-{child.profile.value}.md"
+            child_path.write_text(render_relay_markdown(child, language=language), encoding="utf-8")
+        (output_path / "full.md").write_text(render_relay_markdown(result, language=language), encoding="utf-8")
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(render_relay_markdown(result, language=language), encoding="utf-8")
+
+
 def _slugify_model_name(model: str) -> str:
+    _guard_relay_model_name(model)
     slug = re.sub(r"[^A-Za-z0-9]+", "-", model.strip().lower()).strip("-")
     return slug or "model"
+
+
+def _guard_relay_model_name(model: str | None) -> None:
+    text = str(model or "").strip()
+    lowered = text.lower()
+    secret_like = (
+        lowered.startswith(("sk-", "sk_or_", "sk_live_", "sk_test_"))
+        or "bearer " in lowered
+        or "authorization:" in lowered
+    )
+    if secret_like:
+        raise RelayAuditConfigError("--model appears to contain a secret value. Provide the public model id instead.")
 
 
 if __name__ == "__main__":

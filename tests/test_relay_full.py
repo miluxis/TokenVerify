@@ -116,6 +116,9 @@ def test_full_orchestrator_runs_subprofiles_in_order():
     assert tuple(calls) == FULL_SUBPROFILE_ORDER
     assert tuple(calls) == (
         RelayAuditProfile.GENERAL,
+        RelayAuditProfile.IDENTITY,
+        RelayAuditProfile.CHANNEL,
+        RelayAuditProfile.REASONING,
         RelayAuditProfile.STREAMING,
         RelayAuditProfile.SCHEMA,
         RelayAuditProfile.PRIVACY,
@@ -127,8 +130,57 @@ def test_full_orchestrator_runs_subprofiles_in_order():
     assert result.risk_level == RelayRiskLevel.LOW
     assert result.endpoint_host == "relay.example"
     assert result.endpoint_hash
+    assert [child.profile for child in result.child_results] == list(FULL_SUBPROFILE_ORDER)
+    assert result.child_results[0].evidence[0].metrics["profile"] == "general"
     composite = next(item for item in result.evidence if item.key == "full_profile_composite_verdict")
-    assert set(composite.metrics) >= {"general", "streaming", "schema", "privacy", "security", "context"}
+    assert set(composite.metrics) >= {
+        "general",
+        "identity",
+        "channel",
+        "reasoning",
+        "streaming",
+        "schema",
+        "privacy",
+        "security",
+        "context",
+    }
+
+
+def test_full_orchestrator_aborts_when_general_connectivity_is_inconclusive():
+    calls = []
+
+    def runner(profile):
+        calls.append(profile)
+        if profile == RelayAuditProfile.GENERAL:
+            return make_subprofile_result(
+                profile,
+                verdict=RelayVerdict.INCONCLUSIVE,
+                risk=RelayRiskLevel.UNKNOWN,
+            )
+        raise AssertionError("full runner must not execute later profiles when general cannot connect")
+
+    result = run_full_live_check(
+        authorization=RelayLiveAuthorization(
+            live_mode=True,
+            profile=RelayAuditProfile.FULL,
+            approved_live_path="full_composite_profile",
+            network_scope="approved_subprofile_sequence",
+        ),
+        endpoint="https://relay.example/v1",
+        model="missing-model",
+        pack_summary=RelayPackSummary(label="No Pack", pack_hash=None),
+        subprofile_runner=runner,
+    )
+
+    assert calls == [RelayAuditProfile.GENERAL]
+    assert [child.profile for child in result.child_results] == [RelayAuditProfile.GENERAL]
+    assert result.verdict == RelayVerdict.INCONCLUSIVE
+    assert result.risk_level == RelayRiskLevel.UNKNOWN
+    assert result.runtime_category == RelayRuntimeCategory.UNKNOWN_RUNTIME_ERROR
+    assert "general connectivity check could not reach an analyzable model response" in result.inconclusive_reason
+    assert any(item.key == "full_profile_aborted" for item in result.evidence)
+    composite = next(item for item in result.evidence if item.key == "full_profile_composite_verdict")
+    assert set(composite.metrics) == {"general"}
 
 
 def test_full_orchestrator_adds_insufficient_drift_evidence_when_drift_check_disabled():

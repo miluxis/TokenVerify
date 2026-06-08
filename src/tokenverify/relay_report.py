@@ -5,8 +5,9 @@ from tokenverify.relay_fraud import (
     evaluate_fraud_scenarios,
     FraudScenarioStatus,
     render_fraud_scenario_summary,
+    render_public_observed_signal,
 )
-from tokenverify.relay_models import RelayAuditMode, RelayAuditProfile, RelayPackSummary, RelayResult
+from tokenverify.relay_models import RelayAuditMode, RelayAuditProfile, RelayPackSummary, RelayResult, RelayVerdict
 from tokenverify.relay_safety import sanitize_public_relay_text
 
 
@@ -44,26 +45,44 @@ def render_relay_markdown(result: RelayResult, language: str = "en") -> str:
 
 
 def _render_full_relay_markdown(result: RelayResult, language: str) -> str:
-    fraud_evidence, fraud_sources = collect_relay_fraud_evidence(result)
-    fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
+    aborted = _is_full_profile_aborted(result)
+    fraud_summary = None
+    if not aborted:
+        fraud_evidence, fraud_sources = collect_relay_fraud_evidence(result)
+        fraud_summary = evaluate_fraud_scenarios(fraud_evidence, available_sources=fraud_sources)
     posture = _fraud_posture(result, language, fraud_summary)
     lines = [
         "# TokenVerify Relay Audit Report",
         "",
-        "## 通俗结论" if language == "zh" else "## Plain-Language Conclusion",
+        "## 总体结论" if language == "zh" else "## Overall Conclusion",
         "",
-        f"- {'总体判断' if language == 'zh' else 'Overall judgment'}：**{posture['judgment']}**",
-        f"- {'风险等级' if language == 'zh' else 'Risk level'}：**{posture['risk_level']}**",
-        f"- {'测评对象' if language == 'zh' else 'Target model'}：`{sanitize_public_relay_text(result.model)}`",
-        f"- Endpoint：`{sanitize_public_relay_text(result.endpoint_host)}`",
-        f"- Endpoint hash：`{sanitize_public_relay_text(result.endpoint_hash)}`",
-        f"- {'本次 profile' if language == 'zh' else 'Profile'}：`{result.profile.value}`",
-        f"- {'Challenge pack' if language == 'en' else 'Challenge pack'}：{_pack_summary_text(result.pack_summary, language)}",
-        f"- {'本次结论' if language == 'zh' else 'Conclusion'}：{sanitize_public_relay_text(posture['summary'])}",
-        "",
+        f"- {'总体判断' if language == 'zh' else 'Overall judgment'}{_label_separator(language)}**{posture['judgment']}**",
+        f"- {'风险等级' if language == 'zh' else 'Risk level'}{_label_separator(language)}**{posture['risk_level']}**",
+        f"- {'测评对象' if language == 'zh' else 'Target model'}{_label_separator(language)}`{sanitize_public_relay_text(result.model)}`",
+        f"- Endpoint{_label_separator(language)}`{sanitize_public_relay_text(result.endpoint_host)}`",
+        f"- Endpoint hash{_label_separator(language)}`{sanitize_public_relay_text(result.endpoint_hash)}`",
+        f"- {'本次 profile' if language == 'zh' else 'Profile'}{_label_separator(language)}`{result.profile.value}`",
+        f"- Challenge pack{_label_separator(language)}{_pack_summary_text(result.pack_summary, language)}",
     ]
-    lines.extend(render_fraud_scenario_summary(fraud_summary, language=language, report_kind="full"))
-    lines.extend(_render_executed_technical_checks(result, language))
+    if posture["observed_signals"]:
+        lines.append(f"- {'主要风险信号' if language == 'zh' else 'Main observed risk signals'}{_label_separator(language)}")
+        for signal in posture["observed_signals"]:
+            lines.append(f"  - {sanitize_public_relay_text(signal)}")
+    if posture["absent_signals"]:
+        lines.append(f"- {'本次未观察到' if language == 'zh' else 'Important signals not observed'}{_label_separator(language)}")
+        for signal in posture["absent_signals"]:
+            lines.append(f"  - {sanitize_public_relay_text(signal)}")
+    lines.extend(
+        [
+            f"- {'本次结论' if language == 'zh' else 'Conclusion'}{_label_separator(language)}{sanitize_public_relay_text(posture['summary'])}",
+            "",
+        ]
+    )
+    if aborted:
+        lines.extend(_render_full_aborted_notice(result, language))
+    elif fraud_summary is not None:
+        lines.extend(render_fraud_scenario_summary(fraud_summary, language=language, report_kind="full"))
+    lines.extend(_render_technical_signal_overview(result, language))
     lines.extend(_render_technical_evidence_summary(result, language))
     if result.inconclusive_reason:
         lines.extend(["", "## 无法判定说明" if language == "zh" else "## Inconclusive Explanation", ""])
@@ -94,6 +113,7 @@ def _render_technical_profile_markdown(result: RelayResult, language: str) -> st
         lines.append(f"- Runtime category: {sanitize_public_relay_text(result.runtime_category.value)}")
         lines.append("")
     lines.extend(_render_supported_scenario_scope(result.profile, language))
+    lines.extend(_render_technical_profile_signals(result, language))
     lines.extend(_render_sanitized_technical_evidence(result, language))
     lines.extend(["", "## 安全说明" if language == "zh" else "## Safety Note", "", _safety_note(result, language)])
     if result.inconclusive_reason:
@@ -103,69 +123,317 @@ def _render_technical_profile_markdown(result: RelayResult, language: str) -> st
     return "\n".join(lines)
 
 
-def _fraud_posture(result: RelayResult, language: str, fraud_summary=None) -> dict[str, str]:
-    scenario_attention = False
-    if fraud_summary is not None:
-        scenario_attention = any(
-            item.status in {FraudScenarioStatus.DETECTED, FraudScenarioStatus.SUSPICIOUS}
-            for item in fraud_summary.results
+def _render_technical_profile_signals(result: RelayResult, language: str) -> list[str]:
+    lines = ["", "## 技术信号" if language == "zh" else "## Technical Signals", ""]
+    if result.profile == RelayAuditProfile.CHANNEL and result.verdict == RelayVerdict.INCONCLUSIVE:
+        lines.append(
+            "本次 channel profile 没有拿到可分析的 200 响应，不能据此判断渠道 marker 是否存在。"
+            if language == "zh"
+            else "This channel profile did not reach an analyzable 200 response, so no channel-marker conclusion can be drawn."
         )
-    if result.verdict.value == "fail":
-        judgment = "Fail"
+        lines.append("")
+    lines.extend(["| Evidence | Status | Concrete signals |", "|---|---|---|"])
+    for item in result.evidence:
+        lines.append(
+            "| "
+            + sanitize_public_relay_text(item.key)
+            + " | "
+            + sanitize_public_relay_text(item.status)
+            + " | "
+            + sanitize_public_relay_text(_metrics_text(item.metrics))
+            + " |"
+        )
+    return lines
+
+
+def _metrics_text(metrics: dict) -> str:
+    if not metrics:
+        return "not available"
+    parts: list[str] = []
+    for key, value in sorted(metrics.items()):
+        if value is None:
+            rendered = "not available"
+        else:
+            rendered = str(value)
+        parts.append(f"{key}={rendered}")
+    return ", ".join(parts)
+
+
+def _fraud_posture(result: RelayResult, language: str, fraud_summary=None) -> dict[str, object]:
+    if _is_full_profile_aborted(result):
+        judgment_key = "inconclusive"
+        risk_level = "unknown"
+        summary = (
+            "本次检查未连接到可分析的模型响应。请检查 Endpoint/Base URL、模型名称、API key 后重试。"
+            if language == "zh"
+            else "This run did not reach an analyzable model response. Check the endpoint/base URL, model name, and API key, then retry."
+        )
+        judgment_labels = {"en": "Inconclusive", "zh": "无法判定"}
+        return {
+            "judgment": judgment_labels[language],
+            "judgment_key": judgment_key,
+            "risk_level": risk_level,
+            "summary": summary,
+            "observed_signals": [],
+            "absent_signals": [],
+        }
+    scenario_statuses = [item.status for item in fraud_summary.results] if fraud_summary is not None else []
+    detected = any(item == FraudScenarioStatus.DETECTED for item in scenario_statuses)
+    suspicious = any(item == FraudScenarioStatus.SUSPICIOUS for item in scenario_statuses)
+    insufficient = any(item == FraudScenarioStatus.INSUFFICIENT_EVIDENCE for item in scenario_statuses)
+
+    if detected:
+        judgment_key = "high_risk_signals_observed"
         risk_level = "high"
-    elif scenario_attention:
-        judgment = "Suspicious"
+    elif suspicious:
+        judgment_key = "signals_observed"
         risk_level = "medium"
-    elif result.verdict.value == "suspicious":
-        judgment = "Suspicious"
-        risk_level = "medium"
-    elif result.verdict.value == "inconclusive":
-        judgment = "Inconclusive"
+    elif result.verdict.value == "inconclusive" or insufficient:
+        judgment_key = "inconclusive"
         risk_level = "unknown"
     else:
-        judgment = "Pass"
+        judgment_key = "no_significant_signal"
         risk_level = "low"
+
+    judgment_labels = {
+        "en": {
+            "no_significant_signal": "No significant high-risk signal observed",
+            "signals_observed": "Suspicious signals observed",
+            "high_risk_signals_observed": "High-risk signals observed",
+            "inconclusive": "Inconclusive",
+        },
+        "zh": {
+            "no_significant_signal": "未观察到明显高风险信号",
+            "signals_observed": "观察到可疑信号",
+            "high_risk_signals_observed": "观察到高风险信号",
+            "inconclusive": "无法判定",
+        },
+    }
+    observed = _main_observed_risk_signals(fraud_summary, language) if fraud_summary else []
+    absent = _important_absent_signals(fraud_summary, language) if fraud_summary else []
+    summary = _overall_signal_summary(judgment_key, language)
+    return {
+        "judgment": judgment_labels[language][judgment_key],
+        "judgment_key": judgment_key,
+        "risk_level": risk_level,
+        "summary": summary,
+        "observed_signals": observed,
+        "absent_signals": absent,
+    }
+
+
+def _is_full_profile_aborted(result: RelayResult) -> bool:
+    return result.profile == RelayAuditProfile.FULL and any(item.key == "full_profile_aborted" for item in result.evidence)
+
+
+def _render_full_aborted_notice(result: RelayResult, language: str) -> list[str]:
+    lines = ["", "## 连接检查未通过" if language == "zh" else "## Connectivity Check Failed", ""]
     if language == "zh":
-        summary = (
-            "该 endpoint 通过了已执行的基础连通性、streaming、schema、privacy、security 与 context 检查。"
-            if judgment == "Pass"
-            else "该 endpoint 在本次检查中出现了需要关注的场景信号；请查看下方关键证据。"
+        lines.extend(
+            [
+                "TokenVerify 在 general connectivity 阶段没有拿到可分析的模型响应，因此已停止 full profile 后续检查。",
+                "",
+                "请检查 Endpoint/Base URL、模型名称、API key 是否正确，然后重新运行。",
+                "",
+                "技术停止原因：`full_profile_aborted`",
+            ]
         )
     else:
-        summary = (
-            "This endpoint passed the executed connectivity, streaming, schema, privacy, security, and context checks."
-            if judgment == "Pass"
-            else "This endpoint produced scenario signals that need attention; review the evidence below."
+        lines.extend(
+            [
+                "TokenVerify did not receive an analyzable model response during the general connectivity stage, so later full-profile checks were skipped.",
+                "",
+                "Check the endpoint/base URL, model name, and API key, then rerun the command.",
+                "",
+                "Technical stop reason: `full_profile_aborted`",
+            ]
         )
-    return {"judgment": judgment, "risk_level": risk_level, "summary": summary}
-
-
-def _render_executed_technical_checks(result: RelayResult, language: str) -> list[str]:
-    profile_metrics = _full_profile_metrics(result)
-    labels = {
-        "general": "General connectivity",
-        "streaming": "Streaming integrity",
-        "schema": "Schema / tool calling",
-        "privacy": "Privacy contract",
-        "security": "Security boundary",
-        "context": "Context retention",
-    }
-    lines = ["", "## 已执行技术检查" if language == "zh" else "## Executed Technical Checks", ""]
-    for profile, label in labels.items():
-        status = profile_metrics.get(profile, {}).get("verdict", "not_run")
-        lines.append(f"- {label}：{sanitize_public_relay_text(status)}")
     return lines
+
+
+def _main_observed_risk_signals(fraud_summary, language: str) -> list[str]:
+    signals: list[str] = []
+    for item in fraud_summary.results:
+        if item.status not in {FraudScenarioStatus.DETECTED, FraudScenarioStatus.SUSPICIOUS}:
+            continue
+        source = item.observed_signals or item.triggered_evidence
+        if source:
+            signals.append(render_public_observed_signal(str(source[0]), language))
+    return list(dict.fromkeys(signals))[:5]
+
+
+def _important_absent_signals(fraud_summary, language: str) -> list[str]:
+    absent: list[str] = []
+    for item in fraud_summary.results:
+        if item.status != FraudScenarioStatus.NOT_DETECTED:
+            continue
+        if item.absent_signals:
+            absent.append(str(item.absent_signals[0]))
+    return absent[:5]
+
+
+def _overall_signal_summary(judgment_key: str, language: str) -> str:
+    if language == "zh":
+        if judgment_key == "high_risk_signals_observed":
+            return "本次检查观察到高风险信号；主要风险来源见下方场景证据。"
+        if judgment_key == "signals_observed":
+            return "本次检查观察到可疑信号；建议结合下方证据复测。"
+        if judgment_key == "inconclusive":
+            return "本次检查未能收集足够证据形成稳定判断。"
+        return "本次检查未观察到明显高风险信号。"
+    if judgment_key == "high_risk_signals_observed":
+        return "This run observed high-risk signals; review the scenario evidence below."
+    if judgment_key == "signals_observed":
+        return "This run observed suspicious signals; review the evidence below."
+    if judgment_key == "inconclusive":
+        return "This run did not collect enough usable evidence for a stable judgment."
+    return "This run did not observe significant high-risk signals."
+
+
+def _render_technical_signal_overview(result: RelayResult, language: str) -> list[str]:
+    rows = _technical_signal_rows(result, language)
+    lines = ["", "## 技术信号概览" if language == "zh" else "## Technical Signal Overview", ""]
+    lines.extend(["| Signal | Observed | Interpretation |", "|---|---|---|"])
+    for signal, observed, interpretation in rows:
+        lines.append(
+            f"| {sanitize_public_relay_text(signal)} | {sanitize_public_relay_text(observed)} | {sanitize_public_relay_text(interpretation)} |"
+        )
+    return lines
+
+
+def _technical_signal_rows(result: RelayResult, language: str) -> list[tuple[str, str, str]]:
+    evidence_by_key = _evidence_by_key_with_children(result)
+    rows: list[tuple[str, str, str]] = []
+
+    identity = evidence_by_key.get("identity_response_envelope") or evidence_by_key.get("identity_model_field_consistency")
+    if identity:
+        observed_family = (identity.metrics or {}).get("observed_model_family", "observed")
+        interpretation = (
+            "model-family contradiction signal observed"
+            if identity.status in {"fail", "failed", "suspicious"}
+            else "model-family contradiction not observed"
+        )
+        rows.append(("Identity fingerprint", str(observed_family), interpretation))
+
+    channel = evidence_by_key.get("channel_response_markers") or evidence_by_key.get("channel_claim_consistency")
+    if channel:
+        metrics = channel.metrics or {}
+        response_id_pattern = metrics.get("response_id_pattern")
+        if response_id_pattern == "msg_bdrk...":
+            family = response_id_pattern
+            interpretation = "Bedrock-compatible response id observed"
+        else:
+            family = metrics.get("observed_channel_family") or "none_observed"
+            interpretation = (
+                "third-party channel marker observed"
+                if family != "none_observed"
+                else "no clear third-party channel marker observed"
+            )
+        rows.append(("Channel fingerprint", str(family), interpretation))
+
+    reasoning = evidence_by_key.get("reasoning_native_signal")
+    if reasoning:
+        metrics = reasoning.metrics or {}
+        native = metrics.get("native_reasoning_field_observed")
+        expected = metrics.get("expected_reasoning_family")
+        if expected == "generic":
+            rows.append(("Reasoning native field", "not_applicable", "no native reasoning expectation for generic model family"))
+        elif native is False and expected:
+            rows.append(("Reasoning native field", "not_observed", "expected native reasoning signal was not observed"))
+        elif native is False:
+            rows.append(("Reasoning native field", "not_observed", "native reasoning signal was not observed"))
+        elif native is True:
+            rows.append(("Reasoning native field", "observed", "native reasoning signal observed"))
+        else:
+            rows.append(("Reasoning native field", "not_applicable", "no native reasoning expectation was established"))
+
+    profile_metrics = _full_profile_metrics(result)
+    if "identity" in profile_metrics and not identity:
+        rows.append(
+            (
+                "Identity fingerprint",
+                "checked" if profile_metrics["identity"].get("verdict") == "pass" else "degraded",
+                "identity response envelope summary from full profile",
+            )
+        )
+    if "channel" in profile_metrics and not channel:
+        rows.append(
+            (
+                "Channel fingerprint",
+                "checked" if profile_metrics["channel"].get("verdict") == "pass" else "degraded",
+                "channel marker summary from full profile",
+            )
+        )
+    if "reasoning" in profile_metrics and not reasoning:
+        rows.append(
+            (
+                "Reasoning native field",
+                "checked" if profile_metrics["reasoning"].get("verdict") == "pass" else "not_observed",
+                "reasoning fingerprint summary from full profile",
+            )
+        )
+    if "streaming" in profile_metrics:
+        rows.append(
+            (
+                "Streaming",
+                "normal" if profile_metrics["streaming"].get("verdict") == "pass" else "degraded",
+                "streaming contract summary from full profile",
+            )
+        )
+    if "schema" in profile_metrics:
+        rows.append(
+            (
+                "Schema/tool calling",
+                "preserved" if profile_metrics["schema"].get("verdict") == "pass" else "degraded",
+                "schema/tool contract summary from full profile",
+            )
+        )
+    if "security" in profile_metrics:
+        rows.append(
+            (
+                "Security boundary",
+                "normal" if profile_metrics["security"].get("verdict") == "pass" else "failed_contract",
+                "prompt-security boundary summary from full profile",
+            )
+        )
+    if "context" in profile_metrics:
+        rows.append(
+            (
+                "Context retention",
+                "preserved" if profile_metrics["context"].get("verdict") == "pass" else "degraded",
+                "context anchor-retention summary from full profile",
+            )
+        )
+
+    return rows or [("Relay checks", "inconclusive", "no technical signal rows were available")]
 
 
 def _render_technical_evidence_summary(result: RelayResult, language: str) -> list[str]:
     profile_metrics = _full_profile_metrics(result)
     lines = ["", "## 技术证据摘要" if language == "zh" else "## Technical Evidence Summary", ""]
     lines.extend(["| Profile | Result | Key Evidence |", "|---|---|---|"])
-    for profile in ("general", "streaming", "schema", "privacy", "security", "context"):
+    profiles = ("general",) if _is_full_profile_aborted(result) else (
+        "general",
+        "identity",
+        "channel",
+        "reasoning",
+        "streaming",
+        "schema",
+        "privacy",
+        "security",
+        "context",
+    )
+    for profile in profiles:
         metrics = profile_metrics.get(profile, {})
-        verdict = sanitize_public_relay_text(metrics.get("verdict", "not_run"))
-        evidence_keys = metrics.get("evidence_keys") or []
-        key_evidence = _summarize_evidence_keys(profile, evidence_keys)
+        override = _profile_summary_override(result, profile)
+        if override:
+            verdict, key_evidence = override
+        else:
+            raw_verdict = metrics.get("verdict", "not_run")
+            verdict = _public_profile_result_label(raw_verdict)
+            evidence_keys = metrics.get("evidence_keys") or []
+            key_evidence = _summarize_evidence_keys(profile, evidence_keys, raw_verdict)
+        verdict = sanitize_public_relay_text(verdict)
         lines.append(f"| {profile} | {verdict} | {sanitize_public_relay_text(key_evidence)} |")
     return lines
 
@@ -192,6 +460,18 @@ def _render_sanitized_technical_evidence(result: RelayResult, language: str) -> 
 def _render_supported_scenario_scope(profile: RelayAuditProfile, language: str) -> list[str]:
     scope = {
         RelayAuditProfile.GENERAL: ("Basic relay connectivity", "Runtime error and channel-envelope signals"),
+        RelayAuditProfile.IDENTITY: (
+            "Model identity and capability substitution",
+            "Model claim, response envelope, and candidate upstream-family signals",
+        ),
+        RelayAuditProfile.CHANNEL: (
+            "Channel-source and official-channel misrepresentation",
+            "Official, Bedrock, Azure, OpenRouter, and proxy compatibility markers",
+        ),
+        RelayAuditProfile.REASONING: (
+            "Thinking / reasoning capability forgery",
+            "Native reasoning fields, reasoning usage, and fake public think-tag signals",
+        ),
         RelayAuditProfile.STREAMING: ("Fake or degraded streaming", "SSE event sequence integrity"),
         RelayAuditProfile.SCHEMA: ("Schema / Tool Calling breakage", "Input or argument rewrite signals related to tool contracts"),
         RelayAuditProfile.PRIVACY: ("Privacy leakage", "Marker leakage and upstream error disclosure"),
@@ -233,10 +513,56 @@ def _full_profile_metrics(result: RelayResult) -> dict:
     return {}
 
 
-def _summarize_evidence_keys(profile: str, evidence_keys) -> str:
+def _iter_evidence_with_children(result: RelayResult):
+    for item in result.evidence:
+        yield item
+    for child in result.child_results:
+        yield from _iter_evidence_with_children(child)
+
+
+def _evidence_by_key_with_children(result: RelayResult) -> dict:
+    evidence_by_key = {}
+    for item in _iter_evidence_with_children(result):
+        evidence_by_key.setdefault(item.key, item)
+    return evidence_by_key
+
+
+def _profile_summary_override(result: RelayResult, profile: str) -> tuple[str, str] | None:
+    if profile == "channel":
+        channel = _evidence_by_key_with_children(result).get("channel_response_markers")
+        if channel and (channel.metrics or {}).get("response_id_pattern") == "msg_bdrk...":
+            return ("observed signal", "Bedrock-compatible response id observed")
+    return None
+
+
+def _public_profile_result_label(verdict: str) -> str:
+    if verdict in {"fail", "failed"}:
+        return "high-risk signal"
+    if verdict == "suspicious":
+        return "suspicious signal"
+    if verdict == "inconclusive":
+        return "inconclusive"
+    if verdict == "pass":
+        return "no significant signal"
+    return "not_run"
+
+
+def _summarize_evidence_keys(profile: str, evidence_keys, verdict: str | None = None) -> str:
     keys = set(evidence_keys or [])
     if profile == "general":
         return "minimal connectivity completed" if keys else "not run"
+    if profile == "identity":
+        return "response envelope + model claim checked" if keys else "not run"
+    if profile == "channel":
+        return "channel marker consistency checked" if keys else "not run"
+    if profile == "reasoning":
+        if verdict in {"fail", "failed"}:
+            if "reasoning_native_signal" in keys or "reasoning_usage_signal" in keys:
+                return "native reasoning field not observed for expected reasoning family"
+            if "reasoning_fake_thinking_signal" in keys:
+                return "fake-thinking marker signal observed"
+            return "native reasoning field not observed for expected reasoning family"
+        return "reasoning capability signals checked" if keys else "not run"
     if profile == "streaming":
         return "delta + finish observed" if keys else "not run"
     if profile == "schema":
@@ -244,7 +570,9 @@ def _summarize_evidence_keys(profile: str, evidence_keys) -> str:
     if profile == "privacy":
         return "marker not leaked" if keys else "not run"
     if profile == "security":
-        return "extraction/override probes resisted" if keys else "not run"
+        if verdict in {"fail", "failed"}:
+            return "prompt extraction or override boundary failed"
+        return "prompt-security boundary checked" if keys else "not run"
     if profile == "context":
         return "anchor sequence retained" if keys else "not run"
     return ", ".join(evidence_keys or []) or "not run"
@@ -283,6 +611,27 @@ def _safety_note(result: RelayResult, language: str) -> str:
                 "benchmark or proof that any loss is caused by the relay."
                 if language == "en"
                 else "Live 模式只发送了获批的有限上下文保留请求。这不是长上下文基准，也不证明任何丢失一定由 relay 造成。"
+            )
+        if result.profile == RelayAuditProfile.IDENTITY:
+            return (
+                "Live mode made only the approved bounded identity-fingerprint request. Candidate upstream-family "
+                "signals are black-box indicators, not exact identity proof."
+                if language == "en"
+                else "Live 模式只发送了获批的有限 identity 指纹请求。候选上游家族信号是黑盒指标，不是精确身份铁证。"
+            )
+        if result.profile == RelayAuditProfile.CHANNEL:
+            return (
+                "Live mode made only the approved bounded channel-fingerprint request. Observed gateway markers "
+                "are reported as sanitized channel signals."
+                if language == "en"
+                else "Live 模式只发送了获批的有限 channel 指纹请求。观察到的网关标记会作为脱敏渠道信号报告。"
+            )
+        if result.profile == RelayAuditProfile.REASONING:
+            return (
+                "Live mode made only the approved bounded reasoning-fingerprint request. Public `<think>` text is "
+                "not treated as a native reasoning API field."
+                if language == "en"
+                else "Live 模式只发送了获批的有限 reasoning 指纹请求。正文 `<think>` 文本不会被当作原生 reasoning API 字段。"
             )
         if result.profile == RelayAuditProfile.FULL:
             return (
@@ -348,6 +697,10 @@ def _normalize_language(language: str) -> str:
     if normalized in {"en", "zh"}:
         return normalized
     raise ValueError("language must be en or zh")
+
+
+def _label_separator(language: str) -> str:
+    return "：" if language == "zh" else ": "
 
 
 def _labels(language: str) -> dict[str, str]:

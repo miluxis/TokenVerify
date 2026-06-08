@@ -18,6 +18,9 @@ from tokenverify.relay_safety import RelayLiveAuthorization, hash_relay_endpoint
 
 FULL_SUBPROFILE_ORDER = (
     RelayAuditProfile.GENERAL,
+    RelayAuditProfile.IDENTITY,
+    RelayAuditProfile.CHANNEL,
+    RelayAuditProfile.REASONING,
     RelayAuditProfile.STREAMING,
     RelayAuditProfile.SCHEMA,
     RelayAuditProfile.PRIVACY,
@@ -88,6 +91,13 @@ def run_full_live_check(
                 pack_summary=pack_summary,
             )
         results.append(result)
+        if profile == RelayAuditProfile.GENERAL and result.verdict == RelayVerdict.INCONCLUSIVE:
+            return _aborted_full_result_after_general(
+                general_result=result,
+                endpoint=endpoint,
+                model=model,
+                pack_summary=pack_summary,
+            )
 
     summaries = [_summarize_subprofile(result) for result in results]
     verdict = aggregate_full_verdict([result.verdict for result in results])
@@ -114,6 +124,39 @@ def run_full_live_check(
         retest_guidance="Rerun full profile after resolving any inconclusive subprofile runtime causes.",
         inconclusive_reason=inconclusive_reason,
         runtime_category=RelayRuntimeCategory.UNKNOWN_RUNTIME_ERROR if inconclusive_count else None,
+        child_results=results,
+    )
+
+
+def _aborted_full_result_after_general(
+    *,
+    general_result: RelayResult,
+    endpoint: str,
+    model: str,
+    pack_summary: RelayPackSummary,
+) -> RelayResult:
+    summaries = [_summarize_subprofile(general_result)]
+    reason = (
+        "The general connectivity check could not reach an analyzable model response. "
+        "Check endpoint host, base URL, model name, and API key."
+    )
+    return RelayResult(
+        run_id=_full_run_id(endpoint, model, RelayVerdict.INCONCLUSIVE),
+        profile=RelayAuditProfile.FULL,
+        scenario=RelayVerdict.INCONCLUSIVE,
+        mode=RelayAuditMode.LIVE,
+        model=sanitize_public_relay_text(model),
+        endpoint_host=sanitize_to_fqdn(endpoint),
+        endpoint_hash=hash_relay_endpoint(endpoint),
+        pack_summary=pack_summary,
+        verdict=RelayVerdict.INCONCLUSIVE,
+        risk_level=RelayRiskLevel.UNKNOWN,
+        risk_categories=_collect_risk_categories([general_result]) or [RelayRiskCategory.LATENCY_OR_INSTABILITY],
+        evidence=_build_aborted_full_evidence([general_result], summaries),
+        retest_guidance="Check endpoint host, base URL, model name, and API key, then rerun full profile.",
+        inconclusive_reason=reason,
+        runtime_category=general_result.runtime_category or RelayRuntimeCategory.UNKNOWN_RUNTIME_ERROR,
+        child_results=[general_result],
     )
 
 
@@ -202,6 +245,43 @@ def _build_full_evidence(
     ]
     evidence.append(_build_drift_evidence(drift_check, drift_samples or []))
     return evidence
+
+
+def _build_aborted_full_evidence(
+    results: list[RelayResult],
+    summaries: list[RelayFullSubprofileSummary],
+) -> list[RelayEvidence]:
+    profile_metrics = {
+        summary.profile.value: {
+            "verdict": summary.verdict.value,
+            "risk_level": summary.risk_level.value,
+            "runtime_category": summary.runtime_category.value if summary.runtime_category else None,
+            "evidence_keys": list(summary.evidence_keys),
+        }
+        for summary in summaries
+    }
+    return [
+        RelayEvidence(
+            key="full_profile_aborted",
+            category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+            status="inconclusive",
+            summary="Full profile stopped after general connectivity failed.",
+            metrics={
+                "abort_reason": "general_connectivity_inconclusive",
+                "profiles_executed": "general",
+                "profiles_skipped": "identity,channel,reasoning,streaming,schema,privacy,security,context",
+                "completed_live_request_count": len(results),
+                "recommended_action": "Check endpoint host, base URL, model name, and API key.",
+            },
+        ),
+        RelayEvidence(
+            key="full_profile_composite_verdict",
+            category=RelayRiskCategory.LATENCY_OR_INSTABILITY,
+            status="inconclusive",
+            summary="Composite verdict stopped at general connectivity.",
+            metrics=profile_metrics,
+        ),
+    ]
 
 
 def _build_drift_evidence(drift_check: bool, drift_samples: list[RelayResult]) -> RelayEvidence:

@@ -107,9 +107,11 @@ def test_provider_report_renders_fraud_scenario_summary_from_existing_tags():
     assert "## Fraud Scenario Summary" in markdown
     assert "### Model Identity And Capability Substitution" in markdown
     assert "- Status: detected" in markdown
-    assert "MODEL_CLAIM_CONTRADICTION" in markdown
+    assert "provider audit model-claim signal observed" in markdown
+    assert "Claude model-claim mismatch" in markdown
     assert "### Account-Pool, Reverse-Resource, And Mixed-Routing Drift" in markdown
-    assert "DETAIL_AUDIT_DRIFT_OBSERVED" in markdown
+    assert "provider audit drift signal observed" in markdown
+    assert "model drift suspected" in markdown
 
 
 def test_markdown_redacts_api_key():
